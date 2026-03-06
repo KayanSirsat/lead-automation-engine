@@ -15,10 +15,13 @@ _sheets = _service.spreadsheets()
 
 
 def get_sheet_data(sheet_name: str) -> list[dict]:
-    result = _sheets.values().get(
-        spreadsheetId=SHEET_ID,
-        range=sheet_name
-    ).execute()
+    try:
+        result = _sheets.values().get(
+            spreadsheetId=SHEET_ID,
+            range=sheet_name
+        ).execute()
+    except Exception as exc:
+        raise RuntimeError(f"Failed to read sheet '{sheet_name}': {exc}") from exc
 
     rows = result.get("values", [])
     if not rows:
@@ -36,6 +39,11 @@ def get_lead_by_id(sheet_name: str, lead_id: str) -> dict | None:
     return next((row for row in rows if row.get("Lead ID") == lead_id), None)
 
 
+def get_field(row: dict, field_name: str) -> str:
+    value = row.get(field_name)
+    return value.strip() if isinstance(value, str) else ""
+
+
 def update_row(sheet_name: str, row_number: int, row_values: list) -> None:
     range_notation = f"{sheet_name}!A{row_number}"
     _sheets.values().update(
@@ -48,10 +56,13 @@ def update_row(sheet_name: str, row_number: int, row_values: list) -> None:
 
 def append_row(sheet_name: str, row_values: list) -> None:
     range_notation = f"{sheet_name}!A1"
-    _sheets.values().append(
-        spreadsheetId=SHEET_ID,
-        range=range_notation,
-        valueInputOption="RAW",
-        insertDataOption="INSERT_ROWS",
-        body={"values": [row_values]}
-    ).execute()
+    try:
+        _sheets.values().append(
+            spreadsheetId=SHEET_ID,
+            range=range_notation,
+            valueInputOption="RAW",
+            insertDataOption="INSERT_ROWS",
+            body={"values": [row_values]}
+        ).execute()
+    except Exception as exc:
+        raise RuntimeError(f"Failed to append row to sheet '{sheet_name}': {exc}") from exc
