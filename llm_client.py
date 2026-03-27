@@ -1,4 +1,3 @@
-print("LLM CLIENT LOADED")
 import os
 import time
 

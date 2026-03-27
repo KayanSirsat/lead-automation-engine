@@ -1,0 +1,130 @@
+"""
+routes/leads.py
+
+GET /leads                  — all leads from Lead Database sheet
+GET /leads/{id}             — single lead by Lead ID
+GET /leads/{id}/audit       — audit result from Strategic Angle sheet
+GET /leads/stats            — dashboard summary counts
+"""
+
+import logging
+
+from fastapi import APIRouter, HTTPException
+
+from sheets_client import get_field, get_lead_by_id, get_sheet_data
+
+logger = logging.getLogger(__name__)
+router = APIRouter()
+
+_LEAD_SHEET = "Lead Database"
+_AUDIT_SHEET = "Strategic Angle"
+
+
+@router.get("/stats")
+def get_stats():
+    """
+    Returns summary counts for the dashboard.
+    Reads both sheets once and counts rows.
+    """
+    try:
+        leads = get_sheet_data(_LEAD_SHEET)
+        audits = get_sheet_data(_AUDIT_SHEET)
+
+        audited_ids = {
+            get_field(r, "Lead ID")
+            for r in audits
+            if get_field(r, "Primary Website Weakness")
+        }
+
+        total = len(leads)
+        audited = len(audited_ids)
+        with_website = sum(1 for r in leads if get_field(r, "Website URL"))
+        no_website = total - with_website
+
+        # Breakdown by niche
+        niche_counts: dict[str, int] = {}
+        for r in leads:
+            niche = get_field(r, "Niche") or "Unknown"
+            niche_counts[niche] = niche_counts.get(niche, 0) + 1
+
+        return {
+            "total_leads": total,
+            "audited": audited,
+            "pending_audit": total - audited,
+            "with_website": with_website,
+            "no_website": no_website,
+            "by_niche": niche_counts,
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to fetch stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("")
+def get_leads(
+    niche: str | None = None,
+    city: str | None = None,
+    min_score: int | None = None,
+):
+    """
+    Returns all leads from the Lead Database sheet.
+    Supports optional filtering by niche, city, and minimum lead score.
+    """
+    try:
+        rows = get_sheet_data(_LEAD_SHEET)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    if niche:
+        rows = [r for r in rows if get_field(r, "Niche").lower() == niche.lower()]
+    if city:
+        rows = [r for r in rows if get_field(r, "Location").lower() == city.lower()]
+    if min_score is not None:
+        def _score(r):
+            try:
+                return int(get_field(r, "Lead Score"))
+            except (ValueError, TypeError):
+                return 0
+        rows = [r for r in rows if _score(r) >= min_score]
+
+    return rows
+
+
+@router.get("/stats")
+def _stats_alias():
+    # Alias handled above — FastAPI picks the most specific route
+    pass
+
+
+@router.get("/{lead_id}")
+def get_lead(lead_id: str):
+    """Returns a single lead row by Lead ID."""
+    try:
+        lead = get_lead_by_id(_LEAD_SHEET, lead_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    if not lead:
+        raise HTTPException(status_code=404, detail=f"Lead {lead_id} not found")
+    return lead
+
+
+@router.get("/{lead_id}/audit")
+def get_audit(lead_id: str):
+    """Returns the Strategic Angle audit result for a given Lead ID."""
+    try:
+        rows = get_sheet_data(_AUDIT_SHEET)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    audit = next(
+        (r for r in rows if get_field(r, "Lead ID") == lead_id),
+        None,
+    )
+    if not audit:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No audit found for Lead ID {lead_id}",
+        )
+    return audit

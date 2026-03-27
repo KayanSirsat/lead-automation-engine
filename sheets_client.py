@@ -1,24 +1,53 @@
 import os
+from typing import Any
+
 from dotenv import load_dotenv
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 
 load_dotenv()
 
-CREDENTIALS_PATH = os.getenv("GOOGLE_CREDENTIALS_PATH")
-SHEET_ID = os.getenv("GOOGLE_SHEET_ID")
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
-_creds = Credentials.from_service_account_file(CREDENTIALS_PATH, scopes=SCOPES)
-_service = build("sheets", "v4", credentials=_creds)
-_sheets = _service.spreadsheets()
+# Lazy globals — initialized on first use, not at import time.
+# This prevents crashes when the module is imported before .env is loaded
+# (e.g. during FastAPI startup or unit tests).
+_service: Any = None
+_sheets: Any = None
+
+
+def _get_sheets():
+    """Returns the Sheets API client, initializing it on first call."""
+    global _service, _sheets
+    if _sheets is not None:
+        return _sheets
+
+    credentials_path = os.getenv("GOOGLE_CREDENTIALS_PATH")
+    sheet_id = os.getenv("GOOGLE_SHEET_ID")
+
+    if not credentials_path or not sheet_id:
+        raise RuntimeError(
+            "Missing GOOGLE_CREDENTIALS_PATH or GOOGLE_SHEET_ID in environment variables."
+        )
+
+    creds = Credentials.from_service_account_file(credentials_path, scopes=SCOPES)
+    _service = build("sheets", "v4", credentials=creds)
+    _sheets = _service.spreadsheets()
+    return _sheets
+
+
+def _sheet_id() -> str:
+    sid = os.getenv("GOOGLE_SHEET_ID")
+    if not sid:
+        raise RuntimeError("GOOGLE_SHEET_ID not set.")
+    return sid
 
 
 def get_sheet_data(sheet_name: str) -> list[dict]:
     try:
-        result = _sheets.values().get(
-            spreadsheetId=SHEET_ID,
-            range=sheet_name
+        result = _get_sheets().values().get(
+            spreadsheetId=_sheet_id(),
+            range=sheet_name,
         ).execute()
     except Exception as exc:
         raise RuntimeError(f"Failed to read sheet '{sheet_name}': {exc}") from exc
@@ -46,23 +75,29 @@ def get_field(row: dict, field_name: str) -> str:
 
 def update_row(sheet_name: str, row_number: int, row_values: list) -> None:
     range_notation = f"{sheet_name}!A{row_number}"
-    _sheets.values().update(
-        spreadsheetId=SHEET_ID,
+    _get_sheets().values().update(
+        spreadsheetId=_sheet_id(),
         range=range_notation,
         valueInputOption="RAW",
-        body={"values": [row_values]}
+        body={"values": [row_values]},
     ).execute()
 
 
-def append_row(sheet_name: str, row_values: list, value_input_option: str = "RAW") -> None:
+def append_row(
+    sheet_name: str,
+    row_values: list,
+    value_input_option: str = "RAW",
+) -> None:
     range_notation = f"{sheet_name}!A1"
     try:
-        _sheets.values().append(
-            spreadsheetId=SHEET_ID,
+        _get_sheets().values().append(
+            spreadsheetId=_sheet_id(),
             range=range_notation,
             valueInputOption=value_input_option,
             insertDataOption="INSERT_ROWS",
-            body={"values": [row_values]}
+            body={"values": [row_values]},
         ).execute()
     except Exception as exc:
-        raise RuntimeError(f"Failed to append row to sheet '{sheet_name}': {exc}") from exc
+        raise RuntimeError(
+            f"Failed to append row to sheet '{sheet_name}': {exc}"
+        ) from exc
