@@ -4,42 +4,57 @@ from typing import Any
 # Configure logging for the pipeline
 logger = logging.getLogger(__name__)
 
-# Placeholder imports for scraper modules (to be implemented later)
-try:
-    import google_maps_scraper
-except ImportError:
-    google_maps_scraper = None
+# Optional scraper modules
+google_maps_scraper = None
+zomato_scraper = None
+instagram_finder = None
 
 try:
-    import zomato_scraper
+    from . import google_maps_scraper
 except ImportError:
-    zomato_scraper = None
+    pass
 
 try:
-    import instagram_finder
+    from . import zomato_scraper
 except ImportError:
-    instagram_finder = None
+    pass
+
+try:
+    from . import instagram_finder
+except ImportError:
+    pass
 
 
 def _generate_queries(niche: str, city: str, areas: list[str] | None) -> list[str]:
     """
-    Generates multiple search queries based on the niche, city, and optional areas.
+    Generates location-specific search queries by combining niche synonyms with
+    each area and the city. Also includes generic city-level fallbacks.
     """
-    queries = [f"{niche} {city}"]
+    # Niche-specific synonym variants
+    _NICHE_SYNONYMS: dict[str, list[str]] = {
+        "cafe": ["cafe", "coffee shop", "best cafe", "specialty coffee", "espresso bar"],
+        "restaurant": ["restaurant", "best restaurant", "fine dining", "eatery"],
+        "gym": ["gym", "fitness center", "health club"],
+    }
 
-    # Basic expansions tailored for 'cafe' exact string matching
-    if niche.lower() == "cafe":
-        queries.extend([
-            f"coffee shop {city}",
-            f"best cafe {city}",
-            f"specialty coffee {city}",
-        ])
+    synonyms = _NICHE_SYNONYMS.get(niche.lower(), [niche])
+    seen: set[str] = set()
+    queries: list[str] = []
 
+    def _add(q: str) -> None:
+        if q not in seen:
+            seen.add(q)
+            queries.append(q)
+
+    # 1. Area-specific queries (highest specificity, listed first)
     if areas:
         for area in areas:
-            queries.append(f"{niche} {area} {city}")
-            if niche.lower() == "cafe":
-                queries.append(f"coffee shop {area} {city}")
+            for synonym in synonyms:
+                _add(f"{synonym} {area} {city}")
+
+    # 2. City-level fallback queries
+    for synonym in synonyms:
+        _add(f"{synonym} {city}")
 
     return queries
 
@@ -52,6 +67,7 @@ def _normalize_lead(raw_data: dict[str, Any], niche: str, city: str) -> dict[str
         "company_name": str(raw_data.get("company_name", "")),
         "phone": raw_data.get("phone"),
         "address": raw_data.get("address"),
+        "maps_url": raw_data.get("maps_url"),
         "city": city,
         "rating": raw_data.get("rating"),
         "review_count": raw_data.get("review_count"),
@@ -147,7 +163,7 @@ def generate_leads(
             seen_keys.add(dup_key)
 
             # 5. Zomato Enrichment
-            if zomato_scraper:
+            if not lead.get("instagram") and zomato_scraper:
                 try:
                     logger.debug(f"Calling Zomato enrichment for {lead['company_name']}")
                     zomato_scraper.enrich_lead(lead)

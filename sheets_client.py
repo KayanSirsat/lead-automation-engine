@@ -54,13 +54,13 @@ def update_row(sheet_name: str, row_number: int, row_values: list) -> None:
     ).execute()
 
 
-def append_row(sheet_name: str, row_values: list) -> None:
+def append_row(sheet_name: str, row_values: list, value_input_option: str = "RAW") -> None:
     range_notation = f"{sheet_name}!A1"
     try:
         _sheets.values().append(
             spreadsheetId=SHEET_ID,
             range=range_notation,
-            valueInputOption="RAW",
+            valueInputOption=value_input_option,
             insertDataOption="INSERT_ROWS",
             body={"values": [row_values]}
         ).execute()
