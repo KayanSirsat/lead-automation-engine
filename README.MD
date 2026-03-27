@@ -50,7 +50,7 @@ Input → Scraping → Cleaning → Enrichment → Scoring → Output
 ## How to Run
 
 ```bash
-git clone <repo-link>
+git clone https://github.com/KayanSirsat/lead-automation-engine
 cd lead-automation-engine
 pip install -r requirements.txt
 python main.py
