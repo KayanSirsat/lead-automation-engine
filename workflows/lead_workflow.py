@@ -2,6 +2,7 @@ import datetime
 
 from sheets_client import get_sheet_data, get_field, append_row, update_row
 from agents.website_audit_agent import audit_website
+from agents.outreach_agent import generate_outreach
 from lead_generation.engine import generate_leads
 
 _LEAD_SHEET = "Lead Database"
@@ -198,3 +199,86 @@ def run_lead_audit_workflow() -> None:
         except Exception as e:
             print(f"Error while processing Lead ID {lead_id}: {e}")
             continue
+
+
+_DRAFT_SHEET = "Outreach Drafts"
+
+
+def run_outreach_workflow() -> int:
+    """
+    Generates cold outreach email drafts for all audited leads that don't yet have a draft.
+
+    Reads:
+        - Lead Database sheet (for lead context: name, niche, city)
+        - Strategic Angle sheet (for audit results)
+
+    Writes to:
+        - Outreach Drafts sheet (columns: Lead ID | Company Name | Niche | Subject Line | Email Body | Generated At | Status)
+
+    Returns:
+        Number of new drafts written.
+    """
+    # Build lookup: Lead ID → audit row
+    audit_rows = get_sheet_data(_RESULT_SHEET)
+    audit_map: dict[str, dict] = {
+        get_field(row, "Lead ID"): row
+        for row in audit_rows
+        if get_field(row, "Lead ID") and get_field(row, "Primary Website Weakness")
+    }
+
+    if not audit_map:
+        print("No audited leads found. Skipping outreach workflow.")
+        return 0
+
+    # Build set of lead IDs already drafted
+    draft_rows = get_sheet_data(_DRAFT_SHEET)
+    drafted_ids: set[str] = {
+        get_field(row, "Lead ID")
+        for row in draft_rows
+        if get_field(row, "Lead ID")
+    }
+
+    # Build lookup: Lead ID → lead row
+    lead_rows = get_sheet_data(_LEAD_SHEET)
+    lead_map: dict[str, dict] = {
+        get_field(row, "Lead ID"): row
+        for row in lead_rows
+        if get_field(row, "Lead ID")
+    }
+
+    written = 0
+    for lead_id, audit in audit_map.items():
+        if lead_id in drafted_ids:
+            continue
+
+        lead = lead_map.get(lead_id)
+        if not lead:
+            print(f"Lead ID {lead_id} found in audit but missing from Lead Database. Skipping.")
+            continue
+
+        try:
+            draft = generate_outreach(lead, audit)
+        except Exception as e:
+            print(f"Outreach generation failed for Lead ID {lead_id}: {e}")
+            continue
+
+        row_values = [
+            lead_id,
+            get_field(lead, "Company Name"),
+            get_field(lead, "Niche"),
+            draft.get("subject_line", ""),
+            draft.get("email_body", ""),
+            datetime.datetime.utcnow().isoformat() + "Z",
+            "Draft",
+        ]
+
+        try:
+            append_row(_DRAFT_SHEET, row_values)
+            drafted_ids.add(lead_id)
+            written += 1
+        except Exception as e:
+            print(f"Failed to write outreach draft for Lead ID {lead_id}: {e}")
+            continue
+
+    print(f"Outreach workflow complete. {written} new draft(s) written.")
+    return written

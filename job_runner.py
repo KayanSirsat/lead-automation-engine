@@ -31,6 +31,7 @@ class JobStatus:
     leads_found: int = 0
     leads_written: int = 0
     leads_audited: int = 0
+    leads_outreached: int = 0
     error: str | None = None
     log: list[str] = field(default_factory=list)
 
@@ -48,6 +49,7 @@ class JobStatus:
             "leads_found": self.leads_found,
             "leads_written": self.leads_written,
             "leads_audited": self.leads_audited,
+            "leads_outreached": self.leads_outreached,
             "error": self.error,
             "log": self.log[-50:],   # last 50 log lines only
         }
@@ -114,6 +116,16 @@ def _run_pipeline(job: JobStatus) -> None:
         run_lead_audit_workflow()
 
         _log(job, "Website audits complete")
+
+        # ── Stage 4: Outreach drafts ──────────────────────────────────────
+        _update(job, stage="Generating outreach drafts")
+        _log(job, "Starting outreach workflow")
+
+        from workflows.lead_workflow import run_outreach_workflow
+        drafted = run_outreach_workflow()
+
+        _update(job, leads_outreached=drafted)
+        _log(job, f"Outreach workflow complete. {drafted} draft(s) written.")
 
         # ── Done ──────────────────────────────────────────────────────────
         _update(job, status="done", stage="Complete")

@@ -4,14 +4,18 @@ routes/leads.py
 GET /leads                  — all leads from Lead Database sheet
 GET /leads/{id}             — single lead by Lead ID
 GET /leads/{id}/audit       — audit result from Strategic Angle sheet
+POST /leads/{id}/outreach   — generate (and save) a cold outreach draft for a lead
 GET /leads/stats            — dashboard summary counts
 """
 
+import datetime
 import logging
 
 from fastapi import APIRouter, HTTPException
 
-from sheets_client import get_field, get_lead_by_id, get_sheet_data
+from sheets_client import get_field, get_lead_by_id, get_sheet_data, append_row
+from agents.outreach_agent import generate_outreach
+
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -91,12 +95,6 @@ def get_leads(
     return rows
 
 
-@router.get("/stats")
-def _stats_alias():
-    # Alias handled above — FastAPI picks the most specific route
-    pass
-
-
 @router.get("/{lead_id}")
 def get_lead(lead_id: str):
     """Returns a single lead row by Lead ID."""
@@ -128,3 +126,64 @@ def get_audit(lead_id: str):
             detail=f"No audit found for Lead ID {lead_id}",
         )
     return audit
+
+
+_DRAFT_SHEET = "Outreach Drafts"
+
+
+@router.post("/{lead_id}/outreach", status_code=201)
+def generate_lead_outreach(lead_id: str):
+    """
+    Generates a personalized cold email draft for a lead using its website audit result.
+    Saves the draft to the Outreach Drafts sheet and returns it.
+    Requires the lead to have an existing audit in the Strategic Angle sheet.
+    """
+    # Fetch lead
+    try:
+        lead = get_lead_by_id(_LEAD_SHEET, lead_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    if not lead:
+        raise HTTPException(status_code=404, detail=f"Lead {lead_id} not found")
+
+    # Fetch audit
+    try:
+        audit_rows = get_sheet_data(_AUDIT_SHEET)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    audit = next((r for r in audit_rows if get_field(r, "Lead ID") == lead_id), None)
+    if not audit:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No audit result found for Lead ID {lead_id}. Run the audit first.",
+        )
+
+    # Generate outreach draft
+    try:
+        draft = generate_outreach(lead, audit)
+    except Exception as e:
+        logger.error(f"Outreach generation failed for Lead {lead_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Outreach generation failed: {e}")
+
+    # Persist to Outreach Drafts sheet
+    row_values = [
+        lead_id,
+        get_field(lead, "Company Name"),
+        get_field(lead, "Niche"),
+        draft.get("subject_line", ""),
+        draft.get("email_body", ""),
+        datetime.datetime.utcnow().isoformat() + "Z",
+        "Draft",
+    ]
+    try:
+        append_row(_DRAFT_SHEET, row_values)
+    except Exception as e:
+        logger.warning(f"Could not persist outreach draft for Lead {lead_id}: {e}")
+
+    return {
+        "lead_id": lead_id,
+        "company_name": get_field(lead, "Company Name"),
+        "subject_line": draft.get("subject_line"),
+        "email_body": draft.get("email_body"),
+        "status": "Draft",
+    }
