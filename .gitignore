@@ -6,3 +6,7 @@ credentials.json
 *.log
 .idea/
 .vscode/
+# Documentation and Planning
+implementation_plan.md
+task.md
+CHANGELOG.md
