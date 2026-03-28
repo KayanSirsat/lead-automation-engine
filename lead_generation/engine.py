@@ -35,6 +35,58 @@ def _generate_queries(niche: str, city: str, areas: list[str] | None) -> list[st
         "cafe": ["cafe", "coffee shop", "best cafe", "specialty coffee", "espresso bar"],
         "restaurant": ["restaurant", "best restaurant", "fine dining", "eatery"],
         "gym": ["gym", "fitness center", "health club"],
+        "immigration consultant": [
+            "immigration consultant",
+            "visa consultant",
+            "immigration services",
+            "study abroad consultant",
+            "overseas education consultant",
+            "immigration lawyer",
+        ],
+        "architect": [
+            "architect",
+            "architecture firm",
+            "architectural studio",
+            "building architect",
+        ],
+        "interior designer": [
+            "interior designer",
+            "interior design studio",
+            "interior decorator",
+            "home interior designer",
+        ],
+        "ca firm": [
+            "CA firm",
+            "chartered accountant",
+            "tax consultant",
+            "accounting firm",
+            "GST consultant",
+        ],
+        "law firm": [
+            "law firm",
+            "lawyer",
+            "advocate",
+            "legal services",
+            "solicitor",
+        ],
+        "dentist": [
+            "dentist",
+            "dental clinic",
+            "dental hospital",
+            "orthodontist",
+        ],
+        "real estate": [
+            "real estate agent",
+            "property dealer",
+            "real estate broker",
+            "property consultant",
+        ],
+        "wedding photographer": [
+            "wedding photographer",
+            "photography studio",
+            "wedding videographer",
+            "event photographer",
+        ],
     }
 
     synonyms = _NICHE_SYNONYMS.get(niche.lower(), [niche])

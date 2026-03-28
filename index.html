@@ -1294,7 +1294,7 @@
             const [loading, setLoading] = useState(false);
             const [error, setError] = useState('');
 
-            const NICHES = ['cafe', 'restaurant', 'gym', 'salon', 'architect', 'immigration consultant', 'dentist', 'interior designer'];
+            const NICHES = ['cafe', 'restaurant', 'gym', 'salon', 'immigration consultant', 'architect', 'interior designer', 'ca firm', 'law firm', 'dentist', 'real estate', 'wedding photographer'];
 
             async function submit() {
                 if (!form.city.trim()) { setError('City is required'); return; }
@@ -1373,7 +1373,7 @@
                     <div className="card card-tight" style={{ background: 'var(--surface2)' }}>
                         <div style={{ fontSize: 12, color: 'var(--text3)', lineHeight: 1.8 }}>
                             <strong style={{ color: 'var(--text2)' }}>Pipeline stages:</strong>{' '}
-                            Google Maps scraping → Zomato enrichment → Instagram discovery → Lead scoring → Write to Sheets → Website audit (AI)
+                            Query expansion (niche-aware) → Google Maps scraping → Zomato enrichment → Instagram discovery → Lead scoring → Write to Sheets → Website audit (AI) → Outreach draft
                         </div>
                     </div>
                 </div>
