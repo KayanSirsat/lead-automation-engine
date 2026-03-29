@@ -1,8 +1,9 @@
 import datetime
 
-from sheets_client import get_sheet_data, get_field, append_row, update_row
+from sheets_client import get_sheet_data, get_field, append_row, update_row, _get_sheets, _sheet_id
 from agents.website_audit_agent import audit_website
 from agents.outreach_agent import generate_outreach
+from agents.contact_enricher import enrich_contact
 from lead_generation.engine import generate_leads
 
 _LEAD_SHEET = "Lead Database"
@@ -282,3 +283,71 @@ def run_outreach_workflow() -> int:
 
     print(f"Outreach workflow complete. {written} new draft(s) written.")
     return written
+
+
+_PERSONAL_EMAIL_COL = "N"  # Column 14 in the Lead Database sheet
+
+
+def run_enrichment_workflow() -> int:
+    """
+    Enriches leads with email addresses and writes them back to the Lead Database sheet.
+
+    For each lead that does not yet have a Personal Email value:
+      - Calls enrich_contact() which runs a 5-source waterfall (website scrape,
+        Instagram bio, Google search, Hunter.io, Prospeo)
+      - On success, writes the discovered email to column N (Personal Email)
+        of that lead's row using a targeted single-cell Sheets API update
+
+    Returns:
+        Number of leads successfully enriched.
+    """
+    rows = get_sheet_data(_LEAD_SHEET)
+    enriched = 0
+
+    for index, row in enumerate(rows):
+        lead_id = get_field(row, "Lead ID")
+        if not lead_id:
+            continue
+
+        # Skip leads that already have a Personal Email
+        if get_field(row, "Personal Email"):
+            continue
+
+        # Build a unified lead_dict for the enricher
+        lead_dict = {
+            "company_name": get_field(row, "Company Name"),
+            "Company Name":  get_field(row, "Company Name"),
+            "website":       get_field(row, "Website URL"),
+            "Website URL":   get_field(row, "Website URL"),
+            "city":          get_field(row, "Location"),
+            "City":          get_field(row, "Location"),
+            "instagram":     get_field(row, "Instagram"),
+        }
+
+        try:
+            email = enrich_contact(lead_dict)
+        except Exception as exc:
+            print(f"Enrichment failed for Lead ID {lead_id}: {exc}")
+            continue
+
+        if not email:
+            continue
+
+        # Row number in the sheet: header is row 1, data starts at row 2
+        sheet_row = index + 2
+        cell_range = f"{_LEAD_SHEET}!{_PERSONAL_EMAIL_COL}{sheet_row}"
+
+        try:
+            _get_sheets().values().update(
+                spreadsheetId=_sheet_id(),
+                range=cell_range,
+                valueInputOption="RAW",
+                body={"values": [[email]]},
+            ).execute()
+            enriched += 1
+        except Exception as exc:
+            print(f"Failed to write email for Lead ID {lead_id}: {exc}")
+            continue
+
+    print(f"Enrichment workflow complete. {enriched} lead(s) enriched.")
+    return enriched

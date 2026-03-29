@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException
 
 from sheets_client import get_field, get_lead_by_id, get_sheet_data, append_row
 from agents.outreach_agent import generate_outreach
+from agents.contact_enricher import enrich_contact
 
 
 logger = logging.getLogger(__name__)
@@ -186,4 +187,35 @@ def generate_lead_outreach(lead_id: str):
         "subject_line": draft.get("subject_line"),
         "email_body": draft.get("email_body"),
         "status": "Draft",
-    }
+    }
+
+
+@router.post("/{lead_id}/enrich", status_code=200)
+def enrich_lead_contact(lead_id: str):
+    try:
+        lead = get_lead_by_id(_LEAD_SHEET, lead_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    if not lead:
+        raise HTTPException(status_code=404, detail=f"Lead {lead_id} not found")
+
+    existing_email = get_field(lead, "Personal Email")
+    if existing_email:
+        return {"lead_id": lead_id, "email": existing_email, "source": "existing"}
+
+    # Map necessary fields for contact_enricher
+    lead["city"] = get_field(lead, "Location")
+    lead["instagram"] = get_field(lead, "Instagram")
+    lead["company_name"] = get_field(lead, "Company Name")
+    lead["website"] = get_field(lead, "Website URL")
+
+    try:
+        email = enrich_contact(lead)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Enrichment failed: {e}")
+
+    if email:
+        return {"lead_id": lead_id, "email": email, "source": "enriched"}
+
+    raise HTTPException(status_code=404, detail="No email found for this lead")
