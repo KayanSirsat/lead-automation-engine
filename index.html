@@ -1429,6 +1429,7 @@
                 { key: 'Writing to Google Sheets', icon: '📋', desc: 'Saving leads to Lead Database' },
                 { key: 'Running website audits', icon: '🔍', desc: 'AI analysis of website conversion quality' },
                 { key: 'Generating outreach drafts', icon: '✉️', desc: 'Writing personalized cold email drafts' },
+                { key: 'Enriching contact details', icon: '📧', desc: 'Finding owner emails via website, Instagram, and APIs' },
                 { key: 'Complete', icon: '✅', desc: 'Pipeline finished' },
             ];
 
@@ -1503,7 +1504,7 @@
                                     </div>
 
                                     <div style={{ display: 'flex', gap: 20, marginTop: 14 }}>
-                                        {[['Found', detail.leads_found], ['Written', detail.leads_written], ['Audited', detail.leads_audited], ['Outreached', detail.leads_outreached]].map(([label, val]) => (
+                                        {[['Found', detail.leads_found], ['Written', detail.leads_written], ['Audited', detail.leads_audited], ['Outreached', detail.leads_outreached], ['Enriched', detail.leads_enriched]].map(([label, val]) => (
                                             <div key={label}>
                                                 <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{label}</div>
                                                 <div style={{ fontSize: 20, fontWeight: 600, fontFamily: 'var(--mono)', color: 'var(--text)' }}>{val}</div>
@@ -1569,7 +1570,7 @@
                         </div>
                     </div>
                     <div className="job-counts">
-                        {[['Found', job.leads_found], ['Written', job.leads_written], ['Outreached', job.leads_outreached]].map(([l, v]) => (
+                        {[['Found', job.leads_found], ['Written', job.leads_written], ['Outreached', job.leads_outreached], ['Enriched', job.leads_enriched]].map(([l, v]) => (
                             <div key={l} className="job-count-item">
                                 <div className="job-count-val">{v}</div>
                                 <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>{l}</div>
@@ -1588,6 +1589,9 @@
             const [draft, setDraft] = useState(null);
             const [generatingDraft, setGeneratingDraft] = useState(false);
             const [draftError, setDraftError] = useState('');
+            const [findingEmail, setFindingEmail] = useState(false);
+            const [emailError, setEmailError] = useState('');
+            const [enrichedEmail, setEnrichedEmail] = useState(lead['Personal Email'] || null);
 
             useEffect(() => {
                 const id = lead['Lead ID'];
@@ -1613,6 +1617,21 @@
                     setDraftError(e.message || 'Failed to generate draft');
                 } finally {
                     setGeneratingDraft(false);
+                }
+            }
+
+            async function findEmail() {
+                const id = lead['Lead ID'];
+                if (!id) return;
+                setFindingEmail(true);
+                setEmailError('');
+                try {
+                    const result = await apiFetch(`/leads/${id}/enrich`, { method: 'POST' });
+                    setEnrichedEmail(result.email);
+                } catch (e) {
+                    setEmailError(e.message || 'Failed to find email');
+                } finally {
+                    setFindingEmail(false);
                 }
             }
 
@@ -1698,6 +1717,42 @@
                                                 <div className="audit-card-value">{value}</div>
                                             </div>
                                         ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="divider" />
+
+                            {/* Contact Enrichment */}
+                            <div>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Contact Enrichment</div>
+                                    {!enrichedEmail && (
+                                        <button
+                                            className="btn btn-secondary btn-sm"
+                                            onClick={findEmail}
+                                            disabled={findingEmail}
+                                        >
+                                            {findingEmail ? <><div className="spinner" style={{ width: 12, height: 12, borderWidth: 2 }} /> Finding…</> : '🔍 Find Email'}
+                                        </button>
+                                    )}
+                                </div>
+                                {emailError && (
+                                    <div style={{ padding: '8px 12px', background: 'var(--red-dim)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 6, fontSize: 12, color: 'var(--red)', marginBottom: 10 }}>
+                                        {emailError}
+                                    </div>
+                                )}
+                                {!enrichedEmail && !findingEmail && !emailError && (
+                                    <div style={{ color: 'var(--text3)', fontSize: 13, padding: '12px', background: 'var(--surface2)', borderRadius: 6 }}>
+                                        No email found yet. Click Find Email to start search.
+                                    </div>
+                                )}
+                                {enrichedEmail && (
+                                    <div className="audit-card">
+                                        <div className="audit-card-label">Email Address</div>
+                                        <div className="audit-card-value">
+                                            <a href={`mailto:${enrichedEmail}`}>{enrichedEmail}</a>
+                                        </div>
                                     </div>
                                 )}
                             </div>

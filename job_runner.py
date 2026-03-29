@@ -32,6 +32,7 @@ class JobStatus:
     leads_written: int = 0
     leads_audited: int = 0
     leads_outreached: int = 0
+    leads_enriched: int = 0
     error: str | None = None
     log: list[str] = field(default_factory=list)
 
@@ -50,6 +51,7 @@ class JobStatus:
             "leads_written": self.leads_written,
             "leads_audited": self.leads_audited,
             "leads_outreached": self.leads_outreached,
+            "leads_enriched": self.leads_enriched,
             "error": self.error,
             "log": self.log[-50:],   # last 50 log lines only
         }
@@ -126,6 +128,16 @@ def _run_pipeline(job: JobStatus) -> None:
 
         _update(job, leads_outreached=drafted)
         _log(job, f"Outreach workflow complete. {drafted} draft(s) written.")
+
+        # ── Stage 5: Contact enrichment ───────────────────────────────────────
+        _update(job, stage="Enriching contact details")
+        _log(job, "Starting contact enrichment workflow")
+
+        from workflows.lead_workflow import run_enrichment_workflow
+        enriched = run_enrichment_workflow()
+
+        _update(job, leads_enriched=enriched)
+        _log(job, f"Contact enrichment complete. {enriched} email(s) found.")
 
         # ── Done ──────────────────────────────────────────────────────────
         _update(job, status="done", stage="Complete")
