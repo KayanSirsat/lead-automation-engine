@@ -2,7 +2,7 @@ import datetime
 
 from sheets_client import get_sheet_data, get_field, append_row, update_row, _get_sheets, _sheet_id
 from agents.website_audit_agent import audit_website
-from agents.outreach_agent import generate_outreach
+from agents.outreach_agent import generate_outreach, generate_call_script
 from agents.contact_enricher import enrich_contact
 from lead_generation.engine import generate_leads
 
@@ -207,10 +207,12 @@ _DRAFT_SHEET = "Outreach Drafts"
 
 def run_outreach_workflow() -> int:
     """
-    Generates cold outreach email drafts for all audited leads that don't yet have a draft.
+    Generates cold outreach email drafts for leads that don't yet have a draft.
+    Uses audit results if available, otherwise generates a simplified draft 
+    for leads that at least have a phone number or Instagram handle.
 
     Reads:
-        - Lead Database sheet (for lead context: name, niche, city)
+        - Lead Database sheet (for lead context: name, niche, city, phone, IG)
         - Strategic Angle sheet (for audit results)
 
     Writes to:
@@ -227,10 +229,6 @@ def run_outreach_workflow() -> int:
         if get_field(row, "Lead ID") and get_field(row, "Primary Website Weakness")
     }
 
-    if not audit_map:
-        print("No audited leads found. Skipping outreach workflow.")
-        return 0
-
     # Build set of lead IDs already drafted
     draft_rows = get_sheet_data(_DRAFT_SHEET)
     drafted_ids: set[str] = {
@@ -239,23 +237,28 @@ def run_outreach_workflow() -> int:
         if get_field(row, "Lead ID")
     }
 
-    # Build lookup: Lead ID → lead row
     lead_rows = get_sheet_data(_LEAD_SHEET)
-    lead_map: dict[str, dict] = {
-        get_field(row, "Lead ID"): row
-        for row in lead_rows
-        if get_field(row, "Lead ID")
-    }
-
     written = 0
-    for lead_id, audit in audit_map.items():
-        if lead_id in drafted_ids:
+
+    for lead in lead_rows:
+        lead_id = get_field(lead, "Lead ID")
+        if not lead_id or lead_id in drafted_ids:
             continue
 
-        lead = lead_map.get(lead_id)
-        if not lead:
-            print(f"Lead ID {lead_id} found in audit but missing from Lead Database. Skipping.")
-            continue
+        audit = audit_map.get(lead_id)
+        if not audit:
+            phone = get_field(lead, "Phone Number")
+            ig = get_field(lead, "Instagram")
+            if not phone and not ig:
+                continue
+            
+            company_name = get_field(lead, "Company Name") or "This business"
+            audit = {
+                "primary_website_weakness": "No website found for this business",
+                "leverage_angle_used": "Building a professional online presence from scratch",
+                "personalized_note": f"{company_name} doesn't appear to have a website yet, which means potential clients searching online can't find them",
+                "confidence_score": 5
+            }
 
         try:
             draft = generate_outreach(lead, audit)
@@ -351,3 +354,88 @@ def run_enrichment_workflow() -> int:
 
     print(f"Enrichment workflow complete. {enriched} lead(s) enriched.")
     return enriched
+
+
+_CALL_SCRIPT_SHEET = "Call Scripts"
+
+
+def run_call_script_workflow() -> int:
+    """
+    Generates phone call scripts for all audited leads that don't yet have one.
+
+    Reads:
+        - Lead Database sheet
+        - Strategic Angle sheet (audit required — skips leads with no audit)
+        - Call Scripts sheet (to skip already-scripted leads)
+
+    Writes to:
+        - Call Scripts sheet (columns: Lead ID | Company Name | Niche | Phone Number |
+          Opener | Hook | Value Prop | Not Interested | No Time | Have Website | Close | Generated At)
+
+    Returns:
+        Number of new call scripts written.
+    """
+    # Build audit lookup: Lead ID → audit row
+    audit_rows = get_sheet_data(_RESULT_SHEET)
+    audit_map: dict[str, dict] = {
+        get_field(row, "Lead ID"): row
+        for row in audit_rows
+        if get_field(row, "Lead ID") and get_field(row, "Primary Website Weakness")
+    }
+
+    if not audit_map:
+        print("No audited leads found. Skipping call script workflow.")
+        return 0
+
+    # Build set of already-scripted Lead IDs
+    existing_scripts = get_sheet_data(_CALL_SCRIPT_SHEET)
+    scripted_ids: set[str] = {
+        get_field(row, "Lead ID")
+        for row in existing_scripts
+        if get_field(row, "Lead ID")
+    }
+
+    lead_rows = get_sheet_data(_LEAD_SHEET)
+    written = 0
+
+    for lead in lead_rows:
+        lead_id = get_field(lead, "Lead ID")
+        if not lead_id or lead_id in scripted_ids:
+            continue
+
+        audit = audit_map.get(lead_id)
+        if not audit:
+            continue  # Call scripts require real audit data
+
+        try:
+            script = generate_call_script(lead, audit)
+        except Exception as e:
+            print(f"Call script generation failed for Lead ID {lead_id}: {e}")
+            continue
+
+        objections = script.get("objection_responses", {})
+        row_values = [
+            lead_id,
+            get_field(lead, "Company Name"),
+            get_field(lead, "Niche"),
+            get_field(lead, "Phone Number"),
+            script.get("opener", ""),
+            script.get("hook", ""),
+            script.get("value_prop", ""),
+            objections.get("not_interested", ""),
+            objections.get("no_time", ""),
+            objections.get("have_website", ""),
+            script.get("close", ""),
+            datetime.datetime.utcnow().isoformat() + "Z",
+        ]
+
+        try:
+            append_row(_CALL_SCRIPT_SHEET, row_values)
+            scripted_ids.add(lead_id)
+            written += 1
+        except Exception as e:
+            print(f"Failed to write call script for Lead ID {lead_id}: {e}")
+            continue
+
+    print(f"Call script workflow complete. {written} script(s) written.")
+    return written

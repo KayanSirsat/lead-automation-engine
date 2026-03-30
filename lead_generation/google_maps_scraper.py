@@ -121,7 +121,7 @@ def _extract_listing(page: Page, url: str) -> dict[str, Any] | None:
         return None
 
 
-def _collect_listing_urls(page: Page, query: str) -> list[str]:
+def _collect_listing_urls(page: Page, query: str, limit: int = _MAX_RESULTS) -> list[str]:
     """Loads the Maps search result sidebar and collects individual listing URLs."""
     encoded_query = quote_plus(query)
     maps_url = f"https://www.google.com/maps/search/{encoded_query}"
@@ -151,8 +151,8 @@ def _collect_listing_urls(page: Page, query: str) -> list[str]:
         current_count = page.locator("a[href*='/maps/place/']").count()
         logger.debug(f"Scroll check: {current_count} listings visible")
 
-        if current_count >= _MAX_RESULTS:
-            logger.debug(f"Reached listing cap ({_MAX_RESULTS}), stopping scroll.")
+        if current_count >= limit:
+            logger.debug(f"Reached listing cap ({limit}), stopping scroll.")
             break
 
         if current_count == previous_count:
@@ -183,16 +183,17 @@ def _collect_listing_urls(page: Page, query: str) -> list[str]:
             continue
 
     logger.info(f"Listings discovered: {len(hrefs)} (query: '{query}')")
-    return hrefs[:_MAX_RESULTS]
+    return hrefs[:limit]
 
 
-def search_maps(query: str) -> list[dict[str, Any]]:
+def search_maps(query: str, limit: int = _MAX_RESULTS) -> list[dict[str, Any]]:
     """
     Searches Google Maps for the given query using a headless Playwright browser.
     Scrolls dynamically until no new results appear, then visits each listing.
 
     Args:
         query: e.g. "cafe Satellite Ahmedabad"
+        limit: max number of leads to fetch for this query
 
     Returns:
         List of lead dicts with company_name, phone, address, rating,
@@ -212,11 +213,11 @@ def search_maps(query: str) -> list[dict[str, Any]]:
         )
 
         search_page = context.new_page()
-        listing_urls = _collect_listing_urls(search_page, query)
+        listing_urls = _collect_listing_urls(search_page, query, limit)
         search_page.close()
 
         for url in listing_urls:
-            if len(results) >= _MAX_RESULTS:
+            if len(results) >= limit:
                 break
 
             logger.info(f"Extracting [{len(results) + 1}/{len(listing_urls)}]: {url[:80]}...")

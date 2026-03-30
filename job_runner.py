@@ -33,6 +33,7 @@ class JobStatus:
     leads_audited: int = 0
     leads_outreached: int = 0
     leads_enriched: int = 0
+    leads_scripted: int = 0
     error: str | None = None
     log: list[str] = field(default_factory=list)
 
@@ -52,6 +53,7 @@ class JobStatus:
             "leads_audited": self.leads_audited,
             "leads_outreached": self.leads_outreached,
             "leads_enriched": self.leads_enriched,
+            "leads_scripted": self.leads_scripted,
             "error": self.error,
             "log": self.log[-50:],   # last 50 log lines only
         }
@@ -138,6 +140,16 @@ def _run_pipeline(job: JobStatus) -> None:
 
         _update(job, leads_enriched=enriched)
         _log(job, f"Contact enrichment complete. {enriched} email(s) found.")
+
+        # ── Stage 6: Call scripts ──────────────────────────────────────
+        _update(job, stage="Generating call scripts")
+        _log(job, "Starting call script workflow")
+
+        from workflows.lead_workflow import run_call_script_workflow
+        scripted = run_call_script_workflow()
+
+        _update(job, leads_scripted=scripted)
+        _log(job, f"Call script workflow complete. {scripted} script(s) written.")
 
         # ── Done ──────────────────────────────────────────────────────────
         _update(job, status="done", stage="Complete")

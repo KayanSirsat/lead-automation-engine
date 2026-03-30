@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from routes import jobs, leads
 
@@ -41,3 +42,9 @@ app.include_router(leads.router, prefix="/leads", tags=["Leads"])
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/")
+def serve_frontend():
+    """Serve the frontend SPA directly from the backend"""
+    return FileResponse("index.html")

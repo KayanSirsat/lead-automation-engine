@@ -26,12 +26,21 @@
 - [x] Expose `POST /leads/{id}/enrich` API route
 - [x] Plug enrichment stage into `job_runner.py` pipeline (Stage 5) and dashboard
 
-## Phase 3 — Outreach Delivery
+## Phase 3 — Phone Outreach & Call Scripts (New)
+- [x] Owner name discovery waterfall (`agents/contact_enricher.py`)
+- [x] Structured call script generator (`agents/outreach_agent.py`)
+- [x] Fallback audit generation for leads without websites (`workflows/lead_workflow.py`)
+- [x] `POST /leads/{lead_id}/call-script` API route with sheet persistence
+- [x] Plug call script generation into `job_runner.py` pipeline (Stage 6)
+- [x] Frontend Call Script UI in LeadModal and job dashboard
+- [x] Inserted Call Scripts stage into PipelineStatus STAGES array
+
+## Phase 4 — Outreach Delivery
 - [ ] Email sender module (SMTP or SendGrid)
 - [ ] Mark lead as `Contacted` in sheet after send
 - [ ] Follow-up sequence logic (trigger after N days if no reply)
 
-## Phase 4 — Dashboard Polish
+## Phase 5 — Dashboard Polish
 - [ ] Pipeline funnel visualization (scrape → audit → outreach)
 - [ ] Per-niche and per-city stats charts
 - [ ] Lead filter UI (tier, city, niche, audit confidence score)

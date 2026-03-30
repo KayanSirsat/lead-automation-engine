@@ -144,3 +144,129 @@ def generate_outreach(lead: dict[str, Any], audit: dict[str, Any]) -> dict[str, 
         raise ValueError(
             f"Outreach LLM returned invalid response after two attempts: {raw!r}"
         ) from exc
+
+
+# ---------------------------------------------------------------------------
+# Call script generator
+# ---------------------------------------------------------------------------
+
+_CALL_SCRIPT_REQUIRED_KEYS = {"opener", "hook", "value_prop", "objection_responses", "close"}
+_OBJECTION_KEYS = {"not_interested", "no_time", "have_website"}
+
+_CALL_SCRIPT_PROMPT_TEMPLATE = """
+You are a sales coach helping a web design agency owner make cold calls to local business owners.
+
+--- LEAD INFO ---
+Business Name: {company_name}
+Niche: {niche}
+Location: {city}
+--- END LEAD INFO ---
+
+--- WEBSITE AUDIT FINDINGS ---
+Primary Weakness: {primary_website_weakness}
+Improvement Opportunity: {leverage_angle_used}
+Personalized Observation: {personalized_note}
+--- END AUDIT FINDINGS ---
+
+--- AGENCY POSITIONING ---
+We build high-conversion, mobile-first websites for {niche} businesses.
+Our value propositions for this niche: {value_props}
+Our core offer: {angle}
+Tone: Calm, confident, consultative — like a trusted peer, not a pusher.
+--- END AGENCY POSITIONING ---
+
+Write a structured phone call script for approaching the owner of {company_name}.
+
+Rules:
+- opener: First sentence to say when they pick up. Reference the business name. Natural, conversational, not salesy. Max 2 sentences.
+- hook: One specific observation about their website weakness that creates curiosity. Reference something real from the audit. Max 2 sentences. Never say "audit" or "AI".
+- value_prop: One sentence explaining what you do and the concrete outcome. No jargon.
+- objection_responses: Confident, empathetic 1-sentence responses for three common objections:
+  - not_interested: They say they're not interested
+  - no_time: They say they don't have time
+  - have_website: They say they already have a website
+- close: Ask for a 15-minute meeting or call. Specific, low friction, easy to say yes to.
+
+Return ONLY a strict JSON object. No explanation, no markdown, no code fences — raw JSON only:
+
+{{
+  "opener": "<string>",
+  "hook": "<string>",
+  "value_prop": "<string>",
+  "objection_responses": {{
+    "not_interested": "<string>",
+    "no_time": "<string>",
+    "have_website": "<string>"
+  }},
+  "close": "<string>"
+}}
+""".strip()
+
+
+def _build_call_script_prompt(lead: dict[str, Any], audit: dict[str, Any]) -> str:
+    niche = (lead.get("niche") or lead.get("Niche") or "business").lower()
+    ctx = _AGENCY_CONTEXT.get(niche, _DEFAULT_CONTEXT)
+
+    return _CALL_SCRIPT_PROMPT_TEMPLATE.format(
+        company_name=lead.get("company_name") or lead.get("Company Name") or "the business",
+        niche=niche,
+        city=lead.get("city") or lead.get("Location") or "your city",
+        primary_website_weakness=audit.get("primary_website_weakness")
+            or audit.get("Primary Website Weakness", "N/A"),
+        leverage_angle_used=audit.get("leverage_angle_used")
+            or audit.get("Leverage Angle", "N/A"),
+        personalized_note=audit.get("personalized_note")
+            or audit.get("Personalized note", "N/A"),
+        value_props=", ".join(ctx["value_props"]),
+        angle=ctx["angle"],
+    )
+
+
+def _validate_call_script(result: dict[str, Any]) -> dict[str, Any]:
+    missing_top = _CALL_SCRIPT_REQUIRED_KEYS - result.keys()
+    if missing_top:
+        raise ValueError(f"Call script missing required keys: {missing_top}")
+    for key in _CALL_SCRIPT_REQUIRED_KEYS - {"objection_responses"}:
+        if not isinstance(result[key], str) or not result[key].strip():
+            raise ValueError(f"Field '{key}' is empty or not a string.")
+    objections = result.get("objection_responses", {})
+    if not isinstance(objections, dict):
+        raise ValueError("'objection_responses' must be a dict.")
+    missing_obj = _OBJECTION_KEYS - objections.keys()
+    if missing_obj:
+        raise ValueError(f"objection_responses missing keys: {missing_obj}")
+    for k in _OBJECTION_KEYS:
+        if not isinstance(objections[k], str) or not objections[k].strip():
+            raise ValueError(f"objection_responses['{k}'] is empty or not a string.")
+    return result
+
+
+def generate_call_script(lead: dict[str, Any], audit: dict[str, Any]) -> dict[str, Any]:
+    """
+    Generates a structured phone call script for approaching the business owner.
+
+    Args:
+        lead: A lead row dict (from Lead Database sheet or normalized engine output).
+        audit: An audit result dict (from Strategic Angle sheet or audit_website()).
+
+    Returns:
+        Dict with keys: opener, hook, value_prop, objection_responses, close.
+
+    Raises:
+        ValueError: If the LLM returns invalid output after two attempts.
+    """
+    prompt = _build_call_script_prompt(lead, audit)
+
+    raw = call_llm(prompt)
+    try:
+        return _validate_call_script(_parse_response(raw))
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    raw = call_llm(prompt)
+    try:
+        return _validate_call_script(_parse_response(raw))
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise ValueError(
+            f"Call script LLM returned invalid response after two attempts: {raw!r}"
+        ) from exc

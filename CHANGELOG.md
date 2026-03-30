@@ -105,3 +105,12 @@ Maintained by AI. Updated at end of each working session.
 - `job_runner.py` -- Added `leads_enriched` to `JobStatus` and wired up Phase 5: `Enriching contact details` using the new `run_enrichment_workflow()` function.
 - `index.html` -- Added `Enriching contact details` stage to the PipelineStatus dashboard widget, including updated counters for `JobRow` and job detail panes.
 - `index.html` -- Added `🔍 Find Email` button to the `LeadModal` to fetch enhanced contact enrichment for a lead manually from the `/leads/{id}/enrich` route.
+
+### Added (Phone Outreach & Call Scripts)
+- `agents/contact_enricher.py` -- Added `find_owner_name()`: a 2-source waterfall (website about/team pages + Google search) to discover business owner names using regex patterns for founder/director keywords.
+- `agents/outreach_agent.py` -- Added `generate_call_script()`: Generates a JSON phone call script using the lead information and website audit data with dynamic objection handling.
+- `routes/leads.py` -- Added `POST /leads/{lead_id}/call-script` endpoint to trigger call script generation and persist it to the `Call Scripts` sheet.
+- `job_runner.py` -- Added Phase 6: `Generating call scripts` (`run_call_script_workflow`) and `leads_scripted` state variable to auto-process scripts in the background pipeline.
+- `index.html` -- Added Call Script UI section to `LeadModal` to display the generated opener, hook, value proposition, close, and objection responses, along with pipeline dashboard integration.
+- `index.html` -- Inserted `Generating call scripts` stage to `STAGES` array in `PipelineStatus` component for proper pipeline visual tracking.
+- `workflows/lead_workflow.py` -- Updated `run_outreach_workflow()` to generate fallback audits for leads without websites but with a phone or Instagram handle, enabling robust email/script generation even on incomplete leads.

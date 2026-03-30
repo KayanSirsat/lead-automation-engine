@@ -185,7 +185,8 @@ def generate_leads(
         # 2. Google Maps Scraper
         if google_maps_scraper:
             try:
-                raw_results = google_maps_scraper.search_maps(query)
+                remaining_limit = limit - len(unique_leads)
+                raw_results = google_maps_scraper.search_maps(query, limit=remaining_limit)
             except Exception as e:
                 logger.error(f"Google Maps scraper failed for query '{query}': {e}")
                 continue

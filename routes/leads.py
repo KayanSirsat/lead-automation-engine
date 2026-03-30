@@ -5,6 +5,7 @@ GET /leads                  — all leads from Lead Database sheet
 GET /leads/{id}             — single lead by Lead ID
 GET /leads/{id}/audit       — audit result from Strategic Angle sheet
 POST /leads/{id}/outreach   — generate (and save) a cold outreach draft for a lead
+POST /leads/{id}/call-script — generate a structured phone call script for a lead
 GET /leads/stats            — dashboard summary counts
 """
 
@@ -14,8 +15,14 @@ import logging
 from fastapi import APIRouter, HTTPException
 
 from sheets_client import get_field, get_lead_by_id, get_sheet_data, append_row
-from agents.outreach_agent import generate_outreach
+from agents.outreach_agent import generate_outreach, generate_call_script
 from agents.contact_enricher import enrich_contact
+from workflows.lead_workflow import (
+    run_call_script_workflow,
+    run_outreach_workflow,
+    run_enrichment_workflow,
+    run_lead_audit_workflow
+)
 
 
 logger = logging.getLogger(__name__)
@@ -130,6 +137,7 @@ def get_audit(lead_id: str):
 
 
 _DRAFT_SHEET = "Outreach Drafts"
+_CALL_SCRIPT_SHEET = "Call Scripts"
 
 
 @router.post("/{lead_id}/outreach", status_code=201)
@@ -218,4 +226,82 @@ def enrich_lead_contact(lead_id: str):
     if email:
         return {"lead_id": lead_id, "email": email, "source": "enriched"}
 
-    raise HTTPException(status_code=404, detail="No email found for this lead")
+    raise HTTPException(status_code=404, detail="No email found for this lead")
+
+
+@router.post("/{lead_id}/call-script", status_code=200)
+def generate_lead_call_script(lead_id: str):
+    """
+    Generates a structured phone call script for a lead using its website audit result.
+    Requires the lead to have an existing audit in the Strategic Angle sheet.
+    """
+    # Fetch lead
+    try:
+        lead = get_lead_by_id(_LEAD_SHEET, lead_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    if not lead:
+        raise HTTPException(status_code=404, detail=f"Lead {lead_id} not found")
+
+    # Fetch audit
+    try:
+        audit_rows = get_sheet_data(_AUDIT_SHEET)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    audit = next((r for r in audit_rows if get_field(r, "Lead ID") == lead_id), None)
+    if not audit:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No audit result found for Lead ID {lead_id}. Run the audit first.",
+        )
+
+    # Generate call script
+    try:
+        script = generate_call_script(lead, audit)
+    except Exception as e:
+        logger.error(f"Call script generation failed for Lead {lead_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Call script generation failed: {e}")
+
+    # Persist to Call Scripts sheet
+    objections = script.get("objection_responses", {})
+    script_row = [
+        lead_id,
+        get_field(lead, "Company Name"),
+        get_field(lead, "Niche"),
+        get_field(lead, "Phone Number"),
+        script.get("opener", ""),
+        script.get("hook", ""),
+        script.get("value_prop", ""),
+        objections.get("not_interested", ""),
+        objections.get("no_time", ""),
+        objections.get("have_website", ""),
+        script.get("close", ""),
+        datetime.datetime.utcnow().isoformat() + "Z",
+    ]
+    try:
+        append_row(_CALL_SCRIPT_SHEET, script_row)
+    except Exception as e:
+        logger.warning(f"Could not persist call script for Lead {lead_id}: {e}")
+
+    return script
+
+
+@router.post("/sync/call-scripts", status_code=200)
+def sync_call_scripts():
+    count = run_call_script_workflow()
+    return {"scripted": count}
+
+@router.post("/sync/outreach", status_code=200)
+def sync_outreach():
+    count = run_outreach_workflow()
+    return {"outreached": count}
+
+@router.post("/sync/enrichment", status_code=200)
+def sync_enrichment():
+    count = run_enrichment_workflow()
+    return {"enriched": count}
+
+@router.post("/sync/audit", status_code=200)
+def sync_audit():
+    run_lead_audit_workflow()
+    return {"status": "success"}

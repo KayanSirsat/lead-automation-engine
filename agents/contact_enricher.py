@@ -303,3 +303,141 @@ def enrich_contact(lead: dict) -> str | None:
 
     logger.debug("enrich_contact: no email found for '%s' after all sources", company)
     return None
+
+
+# ---------------------------------------------------------------------------
+# Owner name discovery
+# ---------------------------------------------------------------------------
+
+_OWNER_KEYWORDS = (
+    "founder", "director", "ceo", "md", "managing director",
+    "proprietor", "owner", "co-founder", "head",
+)
+
+# Matches typical "First Last" Western-style full names
+_NAME_RE = re.compile(r"\b([A-Z][a-z]{1,20})\s+([A-Z][a-z]{1,20})\b")
+
+_OWNER_PAGE_KEYWORDS = ("about", "team", "founder", "director", "management")
+
+
+def _find_name_near_keyword(text: str) -> str | None:
+    """
+    Scan text for a capitalised full-name that appears within 100 characters
+    of an ownership-role keyword. Returns the first match, or None.
+    """
+    lower = text.lower()
+    for kw in _OWNER_KEYWORDS:
+        idx = lower.find(kw)
+        while idx != -1:
+            window = text[max(0, idx - 100): idx + 100 + len(kw)]
+            match = _NAME_RE.search(window)
+            if match:
+                return match.group()
+            idx = lower.find(kw, idx + 1)
+    return None
+
+
+def _owner_source_website(lead: dict) -> str | None:
+    """Try the website about/team pages for an owner name."""
+    website = lead.get("website") or lead.get("Website URL")
+    if not website:
+        return None
+    if "://" not in website:
+        website = f"https://{website}"
+
+    try:
+        resp = requests.get(website, headers=_BROWSER_HEADERS, timeout=_REQUEST_TIMEOUT)
+        resp.raise_for_status()
+        homepage_html = resp.text
+    except Exception as exc:
+        logger.debug("find_owner_name website: homepage fetch failed — %s", exc)
+        return None
+
+    # Check homepage directly
+    name = _find_name_near_keyword(homepage_html)
+    if name:
+        return name
+
+    # Collect about/team/founder/director/management sub-links
+    base_domain = urlparse(website).netloc
+    link_re = re.compile(r'href=["\']([^"\']+)["\']', re.IGNORECASE)
+    owner_links: list[str] = []
+    for href in link_re.findall(homepage_html):
+        if any(kw in href.lower() for kw in _OWNER_PAGE_KEYWORDS):
+            resolved = urljoin(website, href)
+            if urlparse(resolved).netloc == base_domain:
+                owner_links.append(resolved)
+
+    for link in owner_links[:2]:
+        try:
+            page_resp = requests.get(link, headers=_BROWSER_HEADERS, timeout=_REQUEST_TIMEOUT)
+            page_resp.raise_for_status()
+            name = _find_name_near_keyword(page_resp.text)
+            if name:
+                logger.debug("find_owner_name website: found name on %s", link)
+                return name
+        except Exception as exc:
+            logger.debug("find_owner_name website: failed to fetch %s — %s", link, exc)
+
+    return None
+
+
+def _owner_source_google(lead: dict) -> str | None:
+    """Query Google for founder/director/owner name and extract from snippets."""
+    company = lead.get("company_name") or lead.get("Company Name") or ""
+    city = lead.get("city") or lead.get("City") or ""
+    if not company:
+        return None
+
+    query = f'"{company}" "{city}" founder OR director OR owner' if city else f'"{company}" founder OR director OR owner'
+    url = f"https://www.google.com/search?q={quote_plus(query)}"
+
+    try:
+        resp = requests.get(url, headers=_BROWSER_HEADERS, timeout=_REQUEST_TIMEOUT)
+        resp.raise_for_status()
+        name = _find_name_near_keyword(resp.text)
+        if name:
+            logger.debug("find_owner_name google: found name for '%s'", company)
+            return name
+    except Exception as exc:
+        logger.debug("find_owner_name google: search failed for '%s' — %s", company, exc)
+
+    return None
+
+
+def find_owner_name(lead: dict) -> str | None:
+    """
+    Tries to discover the owner, founder, or director name of the business.
+
+    Sources tried in order (stops at first success):
+      A. Website about/team page — looks for names near ownership keywords
+      B. Google search — queries for founder/director/owner in result snippets
+
+    Writes the name into ``lead["owner_name"]`` in-place before returning.
+    Returns ``None`` if all sources are exhausted.
+    """
+    company = lead.get("company_name") or lead.get("Company Name") or "<unknown>"
+
+    for source_label, source_fn in [
+        ("website_about", _owner_source_website),
+        ("google_search", _owner_source_google),
+    ]:
+        try:
+            name = source_fn(lead)
+        except Exception as exc:
+            logger.debug(
+                "find_owner_name: unexpected error in %s for '%s' — %s",
+                source_label, company, exc,
+            )
+            name = None
+
+        if name:
+            lead["owner_name"] = name
+            logger.info(
+                "find_owner_name: '%s' — name found via %s: %s",
+                company, source_label, name,
+            )
+            return name
+
+    logger.debug("find_owner_name: no name found for '%s' after all sources", company)
+    return None

@@ -1430,6 +1430,7 @@
                 { key: 'Running website audits', icon: '🔍', desc: 'AI analysis of website conversion quality' },
                 { key: 'Generating outreach drafts', icon: '✉️', desc: 'Writing personalized cold email drafts' },
                 { key: 'Enriching contact details', icon: '📧', desc: 'Finding owner emails via website, Instagram, and APIs' },
+                { key: 'Generating call scripts', icon: '📞', desc: 'Writing personalised call scripts for audited leads' },
                 { key: 'Complete', icon: '✅', desc: 'Pipeline finished' },
             ];
 
@@ -1504,7 +1505,7 @@
                                     </div>
 
                                     <div style={{ display: 'flex', gap: 20, marginTop: 14 }}>
-                                        {[['Found', detail.leads_found], ['Written', detail.leads_written], ['Audited', detail.leads_audited], ['Outreached', detail.leads_outreached], ['Enriched', detail.leads_enriched]].map(([label, val]) => (
+                                        {[['Found', detail.leads_found], ['Written', detail.leads_written], ['Audited', detail.leads_audited], ['Outreached', detail.leads_outreached], ['Enriched', detail.leads_enriched], ['Scripted', detail.leads_scripted]].map(([label, val]) => (
                                             <div key={label}>
                                                 <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{label}</div>
                                                 <div style={{ fontSize: 20, fontWeight: 600, fontFamily: 'var(--mono)', color: 'var(--text)' }}>{val}</div>
@@ -1570,7 +1571,7 @@
                         </div>
                     </div>
                     <div className="job-counts">
-                        {[['Found', job.leads_found], ['Written', job.leads_written], ['Outreached', job.leads_outreached], ['Enriched', job.leads_enriched]].map(([l, v]) => (
+                        {[['Found', job.leads_found], ['Written', job.leads_written], ['Outreached', job.leads_outreached], ['Enriched', job.leads_enriched], ['Scripted', job.leads_scripted]].map(([l, v]) => (
                             <div key={l} className="job-count-item">
                                 <div className="job-count-val">{v}</div>
                                 <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>{l}</div>
@@ -1592,6 +1593,9 @@
             const [findingEmail, setFindingEmail] = useState(false);
             const [emailError, setEmailError] = useState('');
             const [enrichedEmail, setEnrichedEmail] = useState(lead['Personal Email'] || null);
+            const [callScript, setCallScript] = useState(null);
+            const [generatingScript, setGeneratingScript] = useState(false);
+            const [scriptError, setScriptError] = useState('');
 
             useEffect(() => {
                 const id = lead['Lead ID'];
@@ -1632,6 +1636,21 @@
                     setEmailError(e.message || 'Failed to find email');
                 } finally {
                     setFindingEmail(false);
+                }
+            }
+
+            async function generateCallScript() {
+                const id = lead['Lead ID'];
+                if (!id) return;
+                setGeneratingScript(true);
+                setScriptError('');
+                try {
+                    const result = await apiFetch(`/leads/${id}/call-script`, { method: 'POST' });
+                    setCallScript(result);
+                } catch (e) {
+                    setScriptError(e.message || 'Failed to generate call script');
+                } finally {
+                    setGeneratingScript(false);
                 }
             }
 
@@ -1799,7 +1818,66 @@
                                             onClick={generateDraft}
                                             disabled={generatingDraft}
                                         >
-                                            {generatingDraft ? <><div className="spinner" style={{ width: 12, height: 12, borderWidth: 2 }} /> Regenerating…</> : '✉️ Regenerate'}
+                                            {generatingDraft ? <><div className="spinner" style={{ width: 12, height: 12, borderWidth: 2 }} /> Regenerating…</> : '\u2709\ufe0f Regenerate'}
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="divider" />
+
+                            {/* Call Script */}
+                            <div>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Call Script</div>
+                                    {!callScript && (
+                                        <button
+                                            className="btn btn-secondary btn-sm"
+                                            onClick={generateCallScript}
+                                            disabled={generatingScript}
+                                        >
+                                            {generatingScript ? <><div className="spinner" style={{ width: 12, height: 12, borderWidth: 2 }} /> Generating…</> : '\ud83d\udcde Generate Call Script'}
+                                        </button>
+                                    )}
+                                </div>
+                                {scriptError && (
+                                    <div style={{ padding: '8px 12px', background: 'var(--red-dim)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 6, fontSize: 12, color: 'var(--red)', marginBottom: 10 }}>
+                                        {scriptError}
+                                    </div>
+                                )}
+                                {!callScript && !generatingScript && !scriptError && (
+                                    <div style={{ color: 'var(--text3)', fontSize: 13, padding: '12px', background: 'var(--surface2)', borderRadius: 6 }}>
+                                        No call script yet. Click Generate Call Script to create a personalised phone approach.
+                                    </div>
+                                )}
+                                {callScript && (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                        {[['Opener', callScript.opener], ['Hook', callScript.hook], ['Value Prop', callScript.value_prop], ['Close', callScript.close]].map(([label, value]) => (
+                                            <div key={label} className="audit-card">
+                                                <div className="audit-card-label">{label}</div>
+                                                <div className="audit-card-value">{value}</div>
+                                            </div>
+                                        ))}
+                                        {callScript.objection_responses && (
+                                            <div className="audit-card">
+                                                <div className="audit-card-label">Objection Responses</div>
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+                                                    {[['Not Interested', callScript.objection_responses.not_interested], ['No Time', callScript.objection_responses.no_time], ['Have a Website', callScript.objection_responses.have_website]].map(([label, value]) => (
+                                                        <div key={label} style={{ background: 'var(--surface)', borderRadius: 6, padding: '8px 12px' }}>
+                                                            <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>{label}</div>
+                                                            <div style={{ fontSize: 13, color: 'var(--text)' }}>{value}</div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                        <button
+                                            className="btn btn-secondary btn-sm"
+                                            style={{ alignSelf: 'flex-start' }}
+                                            onClick={generateCallScript}
+                                            disabled={generatingScript}
+                                        >
+                                            {generatingScript ? <><div className="spinner" style={{ width: 12, height: 12, borderWidth: 2 }} /> Regenerating…</> : '\ud83d\udcde Regenerate Script'}
                                         </button>
                                     </div>
                                 )}
