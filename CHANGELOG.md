@@ -114,3 +114,8 @@ Maintained by AI. Updated at end of each working session.
 - `index.html` -- Added Call Script UI section to `LeadModal` to display the generated opener, hook, value proposition, close, and objection responses, along with pipeline dashboard integration.
 - `index.html` -- Inserted `Generating call scripts` stage to `STAGES` array in `PipelineStatus` component for proper pipeline visual tracking.
 - `workflows/lead_workflow.py` -- Updated `run_outreach_workflow()` to generate fallback audits for leads without websites but with a phone or Instagram handle, enabling robust email/script generation even on incomplete leads.
+
+### Fixed & Upgraded (Performance & Rate Limits)
+- `llm_client.py` -- Implemented 30-second exponential sleep logic for Gemini 2.5 Flash `429 Too Many Requests` responses, ensuring huge data payloads seamlessly stall until token buckets reset instead of crashing strings of leads.
+- `lead_generation/google_maps_scraper.py` & `engine.py` -- Connected the lead chunking `limit` directly into Playwright `search_maps` scrolling loop. This squashed a bug where the scraper obstinately crawled 60 deep listings for every single query rather than stopping appropriately, resulting in instantaneous small-batch tasks.
+- `routes/leads.py` -- Appended sync endpoints (`/sync/call-scripts`, `/sync/outreach`, etc.) for discrete, manual workflow control.

@@ -8,7 +8,7 @@ This project builds a complete lead generation workflow that collects raw busine
 
 ## Pipeline
 
-Input → Scraping → Cleaning → Enrichment → Scoring → Output
+Input → Scraping → Enrichment → Scoring → AI Website Audit → Outreach Drafts → Call Scripts → Sheets Output
 
 ### 1. Scraping
 
@@ -30,7 +30,16 @@ Input → Scraping → Cleaning → Enrichment → Scoring → Output
 * Assigns scores based on predefined criteria
 * Helps prioritize high-value leads
 
-### 5. Output
+
+### 5. AI Website Audit
+* Uses Gemini 2.5 Flash to read and analyze scraped websites
+* Identifies actionable weaknesses for sales pitches
+
+### 6. Outreach Generation & Call Scripts
+* Generates highly personalized cold email drafts
+* Crafts dynamic 5-part cold calling scripts (opener, hook, custom objections)
+
+### 7. Output
 
 * Exports structured data (CSV / Google Sheets)
 

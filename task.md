@@ -33,6 +33,9 @@
 - [x] `POST /leads/{lead_id}/call-script` API route with sheet persistence
 - [x] Plug call script generation into `job_runner.py` pipeline (Stage 6)
 - [x] Frontend Call Script UI in LeadModal and job dashboard
+- [x] Connected dynamic API limit chunking to Maps Scraper
+- [x] Addressed Gemini TPM/RPM token limits logically in llm_client.py
+- [x] Added debug API endpoints (/sync/) for raw stage polling
 - [x] Inserted Call Scripts stage into PipelineStatus STAGES array
 
 ## Phase 4 — Outreach Delivery
