@@ -101,3 +101,29 @@ def append_row(
         raise RuntimeError(
             f"Failed to append row to sheet '{sheet_name}': {exc}"
         ) from exc
+
+
+def col_index_to_letter(col: int) -> str:
+    """Convert 1-based column index to letter(s). 1→A, 26→Z, 27→AA."""
+    result = ""
+    while col > 0:
+        col, remainder = divmod(col - 1, 26)
+        result = chr(65 + remainder) + result
+    return result
+
+
+def update_cell(sheet_name: str, row: int, col: int, value: str) -> None:
+    """Write a single cell value to the given sheet."""
+    col_letter = col_index_to_letter(col)
+    range_notation = f"{sheet_name}!{col_letter}{row}"
+    try:
+        _get_sheets().values().update(
+            spreadsheetId=_sheet_id(),
+            range=range_notation,
+            valueInputOption="RAW",
+            body={"values": [[value]]},
+        ).execute()
+    except Exception as exc:
+        raise RuntimeError(
+            f"Failed to update cell {range_notation} in '{sheet_name}': {exc}"
+        ) from exc

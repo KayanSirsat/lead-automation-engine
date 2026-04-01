@@ -119,3 +119,32 @@ Maintained by AI. Updated at end of each working session.
 - `llm_client.py` -- Implemented 30-second exponential sleep logic for Gemini 2.5 Flash `429 Too Many Requests` responses, ensuring huge data payloads seamlessly stall until token buckets reset instead of crashing strings of leads.
 - `lead_generation/google_maps_scraper.py` & `engine.py` -- Connected the lead chunking `limit` directly into Playwright `search_maps` scrolling loop. This squashed a bug where the scraper obstinately crawled 60 deep listings for every single query rather than stopping appropriately, resulting in instantaneous small-batch tasks.
 - `routes/leads.py` -- Appended sync endpoints (`/sync/call-scripts`, `/sync/outreach`, etc.) for discrete, manual workflow control.
+
+---
+
+## [2026-03-31]
+
+### Added (Lead Status & CRM)
+- `sheets_client.py` — Added `update_cell(sheet_name, row, col, value)` and `col_index_to_letter(col)` to support targeted single-cell updates.
+- `routes/leads.py` — `PATCH /leads/{lead_id}/status`: Persists manual status changes (New, Contacted, Replied, etc.) to the Lead Database sheet (Column U).
+- `index.html` — Integrated CRM status badges, status filter dropdown, and a "Contacted" metric card to the Dashboard.
+- `index.html` — Added an interactive Status dropdown to the `LeadModal` for immediate, optimistic UI updates.
+- `routes/leads.py` — Updated `get_stats()` to dynamically calculate the `contacted` count based on lead status.
+
+### Added (Phase 4 — Outreach Delivery)
+- `agents/email_sender.py` — New module supporting SMTP and SendGrid providers with environment-based switching.
+- `workflows/lead_workflow.py` — Added `run_outreach_delivery_workflow()`: Scans for pending drafts, verifies enriched emails, sends messages, and marks them "Sent".
+- `routes/leads.py` — `POST /leads/{lead_id}/send-email`: Triggers a high-level send for a single lead.
+- `routes/leads.py` — `POST /sync/delivery`: Bulk-sends all pending outreach drafts.
+- `test_email.py` — Created interactive test script to verify email configuration and delivery.
+- `.env.example` — Updated with comprehensive email provider setup guidance.
+
+---
+
+## [2026-04-01]
+
+### Changed (NVIDIA AI Integration)
+- `llm_client.py` — Replaced `google-generativeai` with the `openai` client to integrate NVIDIA NIM (Llama 3.1 70B).
+- `llm_client.py` — Fixed the `base_url` endpoint (`https://integrate.api.nvidia.com/v1`) and corrected the model ID string.
+- `requirements.txt` — Added `openai` and verified installation in the project's virtual environment.
+- `.env` — Updated with `NVIDIA_API_KEY` and the correct `LLM_MODEL_NAME`.

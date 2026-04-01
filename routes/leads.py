@@ -13,20 +13,28 @@ import datetime
 import logging
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
-from sheets_client import get_field, get_lead_by_id, get_sheet_data, append_row
+from sheets_client import get_field, get_lead_by_id, get_sheet_data, append_row, update_cell
 from agents.outreach_agent import generate_outreach, generate_call_script
 from agents.contact_enricher import enrich_contact
 from workflows.lead_workflow import (
     run_call_script_workflow,
     run_outreach_workflow,
     run_enrichment_workflow,
-    run_lead_audit_workflow
+    run_lead_audit_workflow,
+    run_outreach_delivery_workflow
 )
 
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+_VALID_STATUSES = {"New", "Contacted", "Replied", "Meeting Booked", "Closed", "Dead"}
+
+
+class StatusUpdate(BaseModel):
+    status: str
 
 _LEAD_SHEET = "Lead Database"
 _AUDIT_SHEET = "Strategic Angle"
@@ -59,6 +67,8 @@ def get_stats():
             niche = get_field(r, "Niche") or "Unknown"
             niche_counts[niche] = niche_counts.get(niche, 0) + 1
 
+        contacted = sum(1 for r in leads if get_field(r, "Status") == "Contacted")
+
         return {
             "total_leads": total,
             "audited": audited,
@@ -66,6 +76,7 @@ def get_stats():
             "with_website": with_website,
             "no_website": no_website,
             "by_niche": niche_counts,
+            "contacted": contacted,
         }
 
     except Exception as e:
@@ -304,4 +315,154 @@ def sync_enrichment():
 @router.post("/sync/audit", status_code=200)
 def sync_audit():
     run_lead_audit_workflow()
-    return {"status": "success"}
+    return {"status": "success"}
+
+
+@router.post("/{lead_id}/send-email", status_code=200)
+def send_lead_email(lead_id: str):
+    """
+    Sends the outreach email for a specific lead.
+    
+    Requires:
+      - Lead must exist in Lead Database with a Personal Email
+      - Lead must have an outreach draft in Outreach Drafts sheet with status "Draft"
+    
+    On success:
+      - Sends the email
+      - Updates the draft status to "Sent" with timestamp
+      - Returns success response
+    """
+    from agents.email_sender import send_email
+    
+    _DRAFT_SHEET = "Outreach Drafts"
+    
+    # Fetch lead from Lead Database
+    try:
+        lead = get_lead_by_id(_LEAD_SHEET, lead_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+    if not lead:
+        raise HTTPException(status_code=404, detail=f"Lead {lead_id} not found")
+    
+    to_email = get_field(lead, "Personal Email")
+    if not to_email:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Lead {lead_id} has no Personal Email. Run enrichment first."
+        )
+    
+    # Fetch draft from Outreach Drafts
+    try:
+        draft_rows = get_sheet_data(_DRAFT_SHEET)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+    draft = None
+    draft_row_index = None
+    for i, row in enumerate(draft_rows):
+        if get_field(row, "Lead ID") == lead_id:
+            draft = row
+            draft_row_index = i
+            break
+    
+    if not draft:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No outreach draft found for Lead {lead_id}. Generate draft first."
+        )
+    
+    # Check if already sent
+    status = get_field(draft, "Status")
+    if status and status.startswith("Sent"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Email already sent for Lead {lead_id}. Status: {status}"
+        )
+    
+    subject = get_field(draft, "Subject Line")
+    body = get_field(draft, "Email Body")
+    company_name = get_field(lead, "Company Name")
+    
+    if not subject or not body:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Draft for Lead {lead_id} is missing subject or body"
+        )
+    
+    # Send the email
+    try:
+        success = send_email(
+            to_email=to_email,
+            subject=subject,
+            body=body,
+            from_name="LeadFlow Team",
+        )
+    except Exception as e:
+        logger.error(f"Failed to send email to {to_email} for Lead {lead_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Email sending failed: {e}")
+    
+    if not success:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Email sending failed for {to_email}. Check logs for details."
+        )
+    
+    # Update draft status to "Sent" with timestamp
+    sheet_row = draft_row_index + 2  # +2 because header is row 1, data starts at row 2
+    timestamp = datetime.datetime.utcnow().isoformat() + "Z"
+    new_status = f"Sent ({timestamp})"
+    
+    try:
+        # Status is column 7 (G) in Outreach Drafts sheet
+        update_cell(_DRAFT_SHEET, sheet_row, 7, new_status)
+    except Exception as e:
+        logger.warning(f"Email sent but failed to update draft status for Lead {lead_id}: {e}")
+    
+    logger.info(f"Email sent successfully to {company_name} ({to_email}), Lead ID {lead_id}")
+    
+    return {
+        "lead_id": lead_id,
+        "company_name": company_name,
+        "to_email": to_email,
+        "subject": subject,
+        "status": "sent",
+        "sent_at": timestamp,
+    }
+
+
+@router.post("/sync/delivery", status_code=200)
+def sync_delivery():
+    """
+    Bulk sends all pending outreach drafts (status = "Draft") that have
+    enriched email addresses in the Lead Database.
+    """
+    count = run_outreach_delivery_workflow()
+    return {"sent": count}
+
+
+@router.patch("/{lead_id}/status", status_code=200)
+def update_lead_status(lead_id: str, body: StatusUpdate):
+    if body.status not in _VALID_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status '{body.status}'. Must be one of: {', '.join(sorted(_VALID_STATUSES))}"
+        )
+
+    # Scan Lead Database to find the 1-based row number of this lead
+    # Row 1 is the header, so data starts at row 2
+    rows = get_sheet_data(_LEAD_SHEET)
+    row_number = None
+    for i, row in enumerate(rows):
+        if row.get("Lead ID") == lead_id:
+            row_number = i + 2  # +1 for 0-index, +1 for header row
+            break
+
+    if row_number is None:
+        raise HTTPException(status_code=404, detail=f"Lead {lead_id} not found")
+
+    # Column U = 21
+    update_cell(_LEAD_SHEET, row_number, 21, body.status)
+    logger.info(f"Lead {lead_id} status updated to '{body.status}' at row {row_number}")
+
+    return {"lead_id": lead_id, "status": body.status}

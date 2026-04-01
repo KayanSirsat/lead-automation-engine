@@ -1159,6 +1159,16 @@
             const d = new Date(iso);
             return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
         }
+        function leadStatusColor(status) {
+            const s = (status || 'New').toLowerCase();
+            if (s === 'new') return 'gray';
+            if (s === 'contacted') return 'blue';
+            if (s === 'replied') return 'amber';
+            if (s === 'meeting booked') return 'purple';
+            if (s === 'closed') return 'green';
+            if (s === 'dead') return 'red';
+            return 'gray';
+        }
         function nicheColor(niche) {
             const colors = { cafe: '#4f7ef8', restaurant: '#22c55e', gym: '#a855f7', salon: '#f59e0b', architect: '#06b6d4', immigration: '#ec4899' };
             return colors[(niche || '').toLowerCase()] || '#8b95a8';
@@ -1238,6 +1248,11 @@
                             <div className="stat-label">Pending Audit</div>
                             <div className="stat-value">{loading ? '—' : (stats?.pending_audit ?? 0)}</div>
                             <div className="stat-sub">awaiting analysis</div>
+                        </div>
+                        <div className="stat-card blue">
+                            <div className="stat-label">Contacted</div>
+                            <div className="stat-value">{loading ? '—' : (stats?.contacted ?? 0)}</div>
+                            <div className="stat-sub">outreach sent</div>
                         </div>
                         <div className="stat-card">
                             <div className="stat-label">No Website</div>
@@ -1596,6 +1611,8 @@
             const [callScript, setCallScript] = useState(null);
             const [generatingScript, setGeneratingScript] = useState(false);
             const [scriptError, setScriptError] = useState('');
+            const [status, setStatus] = useState(lead['Status'] || 'New');
+            const [updatingStatus, setUpdatingStatus] = useState(false);
 
             useEffect(() => {
                 const id = lead['Lead ID'];
@@ -1680,6 +1697,47 @@
                         </div>
 
                         <div className="modal-body">
+                            {/* Status Section */}
+                            <div style={{ marginBottom: 24, padding: '16px', background: 'var(--surface2)', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '16px' }}>
+                                <div>
+                                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6 }}>Lead Status</div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                        <span className={`badge badge-${leadStatusColor(status)}`} style={{ fontSize: 13, padding: '4px 10px' }}>{status}</span>
+                                        <select
+                                            value={status}
+                                            onChange={async (e) => {
+                                                const newStatus = e.target.value;
+                                                setStatus(newStatus);
+                                                setUpdatingStatus(true);
+                                                try {
+                                                    await apiFetch(`/leads/${lead['Lead ID']}/status`, {
+                                                        method: 'PATCH',
+                                                        headers: { 'Content-Type': 'application/json' },
+                                                        body: JSON.stringify({ status: newStatus })
+                                                    });
+                                                    lead['Status'] = newStatus; // Optimistic update
+                                                } catch (err) {
+                                                    console.error("Failed to update status", err);
+                                                    alert("Failed to update status: " + err.message);
+                                                } finally {
+                                                    setUpdatingStatus(false);
+                                                }
+                                            }}
+                                            disabled={updatingStatus}
+                                            style={{ minWidth: 140, padding: '6px 12px' }}
+                                        >
+                                            <option value="New">New</option>
+                                            <option value="Contacted">Contacted</option>
+                                            <option value="Replied">Replied</option>
+                                            <option value="Meeting Booked">Meeting Booked</option>
+                                            <option value="Closed">Closed</option>
+                                            <option value="Dead">Dead</option>
+                                        </select>
+                                        {updatingStatus && <div className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />}
+                                    </div>
+                                </div>
+                            </div>
+
                             {/* Lead info */}
                             <div>
                                 <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 12 }}>Lead Info</div>
@@ -1902,6 +1960,7 @@
             const [search, setSearch] = useState('');
             const [filterNiche, setFilterNiche] = useState('');
             const [filterCity, setFilterCity] = useState('');
+            const [filterStatus, setFilterStatus] = useState('');
             const [selected, setSelected] = useState(null);
 
             useEffect(() => {
@@ -1915,6 +1974,7 @@
             const cities = [...new Set(leads.map(l => l['Location']).filter(Boolean))];
 
             const filtered = leads.filter(l => {
+                if (filterStatus && (l['Status'] || 'New') !== filterStatus) return false;
                 if (filterNiche && l['Niche']?.toLowerCase() !== filterNiche.toLowerCase()) return false;
                 if (filterCity && l['Location']?.toLowerCase() !== filterCity.toLowerCase()) return false;
                 if (search) {
@@ -1937,6 +1997,15 @@
                         <select value={filterCity} onChange={e => setFilterCity(e.target.value)}>
                             <option value="">All cities</option>
                             {cities.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                        <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+                            <option value="">All statuses</option>
+                            <option value="New">New</option>
+                            <option value="Contacted">Contacted</option>
+                            <option value="Replied">Replied</option>
+                            <option value="Meeting Booked">Meeting Booked</option>
+                            <option value="Closed">Closed</option>
+                            <option value="Dead">Dead</option>
                         </select>
                         <span className="filter-count">{filtered.length} of {leads.length} leads</span>
                     </div>
@@ -1993,6 +2062,11 @@
                                                 {lead['Instagram']
                                                     ? <span className="badge badge-purple">@{lead['Instagram']}</span>
                                                     : <span className="td-muted">—</span>}
+                                            </td>
+                                            <td>
+                                                <span className={`badge badge-${leadStatusColor(lead['Status'])}`}>
+                                                    {lead['Status'] || 'New'}
+                                                </span>
                                             </td>
                                         </tr>
                                     ))}

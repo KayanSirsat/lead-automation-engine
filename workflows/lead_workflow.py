@@ -1,9 +1,9 @@
 import datetime
 
-from sheets_client import get_sheet_data, get_field, append_row, update_row, _get_sheets, _sheet_id
+from sheets_client import get_sheet_data, get_field, append_row, update_row, update_cell, _get_sheets, _sheet_id
 from agents.website_audit_agent import audit_website
 from agents.outreach_agent import generate_outreach, generate_call_script
-from agents.contact_enricher import enrich_contact
+from agents.contact_enricher import enrich_contact, find_owner_name
 from lead_generation.engine import generate_leads
 
 _LEAD_SHEET = "Lead Database"
@@ -352,6 +352,23 @@ def run_enrichment_workflow() -> int:
             print(f"Failed to write email for Lead ID {lead_id}: {exc}")
             continue
 
+        # Attempt to discover and write owner name to columns G (First Name) and H (Last Name)
+        try:
+            website_url = get_field(row, "Website URL")
+            company_name = get_field(row, "Company Name")
+            owner_name = find_owner_name(website_url, company_name)
+            if owner_name:
+                parts = owner_name.split(" ", 1)
+                first_name = parts[0]
+                last_name = parts[1] if len(parts) > 1 else ""
+                update_cell(_LEAD_SHEET, sheet_row, 7, first_name)   # Column G
+                update_cell(_LEAD_SHEET, sheet_row, 8, last_name)    # Column H
+                print(f"Owner name written for Lead ID {lead_id}: {owner_name}")
+            else:
+                print(f"Owner name not found for Lead ID {lead_id}")
+        except Exception as exc:
+            print(f"Failed to write owner name for Lead ID {lead_id}: {exc}")
+
     print(f"Enrichment workflow complete. {enriched} lead(s) enriched.")
     return enriched
 
@@ -439,3 +456,95 @@ def run_call_script_workflow() -> int:
 
     print(f"Call script workflow complete. {written} script(s) written.")
     return written
+
+
+_DRAFT_SHEET = "Outreach Drafts"
+
+
+def run_outreach_delivery_workflow() -> int:
+    """
+    Sends cold outreach emails for drafts that have status "Draft" and have
+    a Personal Email in the Lead Database.
+
+    Reads:
+        - Outreach Drafts sheet (filters for Status == "Draft")
+        - Lead Database sheet (to get Personal Email for each lead)
+
+    Writes:
+        - Updates the Status column in Outreach Drafts to "Sent" with a timestamp
+
+    Returns:
+        Number of emails successfully sent.
+    """
+    from agents.email_sender import send_email
+
+    # Read all drafts
+    draft_rows = get_sheet_data(_DRAFT_SHEET)
+    
+    # Filter for drafts with Status == "Draft"
+    pending_drafts = [
+        (index, row) for index, row in enumerate(draft_rows)
+        if get_field(row, "Status").strip() == "Draft"
+    ]
+
+    if not pending_drafts:
+        print("No pending drafts to send.")
+        return 0
+
+    # Build Lead ID -> Personal Email mapping
+    lead_rows = get_sheet_data(_LEAD_SHEET)
+    email_map: dict[str, str] = {
+        get_field(row, "Lead ID"): get_field(row, "Personal Email")
+        for row in lead_rows
+        if get_field(row, "Lead ID") and get_field(row, "Personal Email")
+    }
+
+    sent = 0
+    for draft_index, draft in pending_drafts:
+        lead_id = get_field(draft, "Lead ID")
+        to_email = email_map.get(lead_id)
+
+        if not to_email:
+            print(f"Lead ID {lead_id} has no Personal Email. Skipping.")
+            continue
+
+        subject = get_field(draft, "Subject Line")
+        body = get_field(draft, "Email Body")
+        company_name = get_field(draft, "Company Name")
+
+        if not subject or not body:
+            print(f"Lead ID {lead_id} draft missing subject or body. Skipping.")
+            continue
+
+        try:
+            success = send_email(
+                to_email=to_email,
+                subject=subject,
+                body=body,
+                from_name="LeadFlow Team",
+            )
+        except Exception as e:
+            print(f"Failed to send email to {to_email} for Lead ID {lead_id}: {e}")
+            continue
+
+        if not success:
+            print(f"Email sending failed for Lead ID {lead_id} ({to_email}).")
+            continue
+
+        # Update the Status column in the Outreach Drafts sheet
+        # Status is column 7 (G) in the Outreach Drafts sheet
+        sheet_row = draft_index + 2  # +2 because header is row 1, data starts at row 2
+        timestamp = datetime.datetime.utcnow().isoformat() + "Z"
+        new_status = f"Sent ({timestamp})"
+
+        try:
+            from sheets_client import update_cell
+            update_cell(_DRAFT_SHEET, sheet_row, 7, new_status)
+            sent += 1
+            print(f"Email sent successfully to {company_name} ({to_email}), Lead ID {lead_id}")
+        except Exception as e:
+            print(f"Failed to update status for Lead ID {lead_id}: {e}")
+            continue
+
+    print(f"Outreach delivery complete. {sent} email(s) sent.")
+    return sent

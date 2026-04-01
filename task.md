@@ -39,9 +39,14 @@
 - [x] Inserted Call Scripts stage into PipelineStatus STAGES array
 
 ## Phase 4 — Outreach Delivery
-- [ ] Email sender module (SMTP or SendGrid)
-- [ ] Mark lead as `Contacted` in sheet after send
+- [x] Email sender module (SMTP or SendGrid) — `agents/email_sender.py`
+- [x] `run_outreach_delivery_workflow()` in `workflows/lead_workflow.py`
+- [x] `POST /leads/{lead_id}/send-email` API route — send single lead email
+- [x] `POST /leads/sync/delivery` API route — bulk send all pending drafts
+- [x] Mark draft status as "Sent" in Outreach Drafts sheet after send
+- [x] Update `.env.example` with email configuration variables
 - [ ] Follow-up sequence logic (trigger after N days if no reply)
+- [ ] Reply tracking integration
 
 ## Phase 5 — Dashboard Polish
 - [ ] Pipeline funnel visualization (scrape → audit → outreach)
