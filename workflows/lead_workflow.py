@@ -548,3 +548,150 @@ def run_outreach_delivery_workflow() -> int:
 
     print(f"Outreach delivery complete. {sent} email(s) sent.")
     return sent
+
+
+def run_followup_workflow(days_since_contact: int = 3) -> int:
+    """
+    Sends follow-up emails to leads that were contacted but haven't replied.
+
+    Criteria:
+        - Lead Database Status == "Contacted"
+        - Matching Outreach Drafts row has Status starting with "Sent"
+        - "Generated At" timestamp in that draft is >= days_since_contact days ago
+
+    Generates a short 3-sentence follow-up email (follow_up=True flag) and:
+        - Appends a new row to Outreach Drafts with Status "Follow-up Draft"
+        - Immediately sends the email via send_email()
+        - Updates the new draft row Status to "Follow-up Sent (timestamp)"
+
+    Returns:
+        Number of follow-up emails successfully sent.
+    """
+    from agents.email_sender import send_email
+
+    now = datetime.datetime.utcnow()
+    cutoff = now - datetime.timedelta(days=days_since_contact)
+
+    # Build Lead ID → personal email and lead dict for "Contacted" leads
+    lead_rows = get_sheet_data(_LEAD_SHEET)
+    contacted_leads: dict[str, dict] = {}
+    lead_email_map: dict[str, str] = {}
+    for row in lead_rows:
+        lead_id = get_field(row, "Lead ID")
+        if not lead_id:
+            continue
+        if get_field(row, "Status") == "Contacted":
+            contacted_leads[lead_id] = row
+        personal_email = get_field(row, "Personal Email")
+        if personal_email:
+            lead_email_map[lead_id] = personal_email
+
+    if not contacted_leads:
+        print("No 'Contacted' leads found. Skipping follow-up workflow.")
+        return 0
+
+    # Build audit lookup for follow-up prompt context (used as placeholder if no audit)
+    audit_rows = get_sheet_data(_RESULT_SHEET)
+    audit_map: dict[str, dict] = {
+        get_field(row, "Lead ID"): row
+        for row in audit_rows
+        if get_field(row, "Lead ID")
+    }
+
+    # Scan Outreach Drafts for eligible sent rows
+    draft_rows = get_sheet_data(_DRAFT_SHEET)
+    sent_count = 0
+
+    for draft in draft_rows:
+        lead_id = get_field(draft, "Lead ID")
+        if lead_id not in contacted_leads:
+            continue
+
+        draft_status = get_field(draft, "Status")
+        if not draft_status.startswith("Sent"):
+            continue  # Only follow up on rows that were already sent
+
+        # Parse the Generated At timestamp
+        generated_at_raw = get_field(draft, "Generated At")
+        if not generated_at_raw:
+            continue
+        try:
+            generated_at = datetime.datetime.fromisoformat(generated_at_raw.rstrip("Z"))
+        except ValueError:
+            print(f"Could not parse Generated At for Lead ID {lead_id}: {generated_at_raw!r}")
+            continue
+
+        if generated_at > cutoff:
+            continue  # Not enough time has passed yet
+
+        to_email = lead_email_map.get(lead_id)
+        if not to_email:
+            print(f"Lead ID {lead_id} has no Personal Email. Skipping follow-up.")
+            continue
+
+        lead = contacted_leads[lead_id]
+        audit = audit_map.get(lead_id, {})
+
+        # Generate follow-up email
+        try:
+            followup = generate_outreach(lead, audit, follow_up=True)
+        except Exception as e:
+            print(f"Follow-up generation failed for Lead ID {lead_id}: {e}")
+            continue
+
+        subject = followup.get("subject_line", "")
+        body = followup.get("email_body", "")
+
+        # Append a new Follow-up Draft row to the sheet first
+        timestamp = datetime.datetime.utcnow().isoformat() + "Z"
+        new_row = [
+            lead_id,
+            get_field(lead, "Company Name"),
+            get_field(lead, "Niche"),
+            subject,
+            body,
+            timestamp,
+            "Follow-up Draft",
+        ]
+        try:
+            append_row(_DRAFT_SHEET, new_row)
+        except Exception as e:
+            print(f"Failed to append follow-up draft for Lead ID {lead_id}: {e}")
+            continue
+
+        # Send the email
+        try:
+            success = send_email(
+                to_email=to_email,
+                subject=subject,
+                body=body,
+                from_name="LeadFlow Team",
+            )
+        except Exception as e:
+            print(f"Failed to send follow-up to {to_email} for Lead ID {lead_id}: {e}")
+            continue
+
+        if not success:
+            print(f"Follow-up email failed to send for Lead ID {lead_id}.")
+            continue
+
+        # Re-read draft rows to get the index of the row we just appended so we can update it
+        try:
+            updated_drafts = get_sheet_data(_DRAFT_SHEET)
+            # Find the last row for this lead_id with status "Follow-up Draft"
+            new_row_index = None
+            for idx, r in enumerate(updated_drafts):
+                if get_field(r, "Lead ID") == lead_id and get_field(r, "Status") == "Follow-up Draft":
+                    new_row_index = idx  # keep updating — we want the last one
+            if new_row_index is not None:
+                sheet_row = new_row_index + 2  # +2 for header
+                update_cell(_DRAFT_SHEET, sheet_row, 7, f"Follow-up Sent ({timestamp})")
+        except Exception as e:
+            print(f"Follow-up sent but failed to update status for Lead ID {lead_id}: {e}")
+
+        print(f"Follow-up sent to {get_field(lead, 'Company Name')} ({to_email}), Lead ID {lead_id}")
+        sent_count += 1
+
+    print(f"Follow-up workflow complete. {sent_count} follow-up(s) sent.")
+    return sent_count
+

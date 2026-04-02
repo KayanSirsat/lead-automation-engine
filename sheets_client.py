@@ -31,7 +31,7 @@ def _get_sheets():
         )
 
     creds = Credentials.from_service_account_file(credentials_path, scopes=SCOPES)
-    _service = build("sheets", "v4", credentials=creds)
+    _service = build("sheets", "v4", credentials=creds, cache_discovery=False)
     _sheets = _service.spreadsheets()
     return _sheets
 

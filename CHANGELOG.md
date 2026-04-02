@@ -148,3 +148,26 @@ Maintained by AI. Updated at end of each working session.
 - `llm_client.py` — Fixed the `base_url` endpoint (`https://integrate.api.nvidia.com/v1`) and corrected the model ID string.
 - `requirements.txt` — Added `openai` and verified installation in the project's virtual environment.
 - `.env` — Updated with `NVIDIA_API_KEY` and the correct `LLM_MODEL_NAME`.
+
+---
+
+## [2026-04-02]
+
+#### Fixed
+- `api.py` — Added CORSMiddleware with wildcard origins to fix browser CORS errors blocking fetch calls from 127.0.0.1:8000 to localhost:8000
+- `routes/leads.py` — Added missing `contacted` count to get_stats() response; counts leads where Status column equals "Contacted"
+
+#### Changed
+- `llm_client.py` — Fully replaced google-generativeai with openai SDK pointed at NVIDIA NIM endpoint (https://integrate.api.nvidia.com/v1); model defaults to meta/llama-3.1-70b-instruct; 4-attempt exponential backoff (10s, 20s, 30s, 40s); no rate-limit sleep needed
+- `requirements.txt` — Removed google-generativeai, added openai
+- `.env.example` — Replaced GEMINI_API_KEY with NVIDIA_API_KEY, updated LLM_MODEL_NAME default
+
+#### Added
+- `workflows/lead_workflow.py` — Wired find_owner_name() into run_enrichment_workflow(); after successful enrich_contact(), calls find_owner_name() and writes first/last name to columns G/H of Lead Database
+- `workflows/lead_workflow.py` — Added run_followup_workflow(days_since_contact=3): fetches Contacted leads, checks elapsed time since last outreach, generates 3-sentence follow-up email via generate_outreach(follow_up=True), appends "Follow-up Draft" row to Outreach Drafts sheet, sends immediately via send_email()
+- `agents/outreach_agent.py` — Added follow_up=True parameter to generate_outreach(); when True, prompt generates short follow-up instead of fresh cold email
+- `routes/leads.py` — Added POST /leads/sync/followup?days=3 endpoint calling run_followup_workflow(); returns {"followups_sent": N}
+
+#### Added (Phase 5 — Dashboard Polish)
+- `index.html` — Added Pipeline Funnel visualization section below stat cards: 6 stages (Scraped, Audited, Outreach Sent, Contacted, Replied, Closed) with proportional bar heights, conversion % labels, blue-to-green gradient colors; bars strictly shrink left to right; shows "–" when previous stage is 0
+- `index.html` — Added Performance by Niche section below funnel: horizontal bar chart grouped client-side from existing leads fetch, sorted by count descending, color-coded by volume

@@ -78,9 +78,38 @@ Return ONLY a strict JSON object. No explanation, no markdown, no code fences â€
 """.strip()
 
 
-def _build_prompt(lead: dict[str, Any], audit: dict[str, Any]) -> str:
+_FOLLOWUP_PROMPT_TEMPLATE = """
+You are a cold email copywriter for a web design agency writing a short follow-up email.
+
+The business owner was already contacted once about improving their website for their {niche} business called {company_name} in {city}.
+They have not replied yet.
+
+Write a follow-up email that:
+- References the original outreach briefly and naturally (e.g. "I sent you a note last week...")
+- Is exactly 3 sentences in the body. Friendly, not pushy.
+- Ends with a single low-friction CTA (e.g. "Worth a quick chat?")
+- Subject line: a short reply-style subject like "Re: {company_name}" or a soft nudge
+- Sign off as: The LeadFlow Team
+
+Return ONLY a strict JSON object. No explanation, no markdown, no code fences â€” raw JSON only:
+
+{{
+  "subject_line": "<short subject>",
+  "email_body": "<3-sentence body as a single string, use \\n\\n between paragraphs>"
+}}
+""".strip()
+
+
+def _build_prompt(lead: dict[str, Any], audit: dict[str, Any], follow_up: bool = False) -> str:
     niche = (lead.get("niche") or lead.get("Niche") or "business").lower()
     ctx = _AGENCY_CONTEXT.get(niche, _DEFAULT_CONTEXT)
+
+    if follow_up:
+        return _FOLLOWUP_PROMPT_TEMPLATE.format(
+            company_name=lead.get("company_name") or lead.get("Company Name") or "the business",
+            niche=niche,
+            city=lead.get("city") or lead.get("Location") or "your city",
+        )
 
     return _OUTREACH_PROMPT_TEMPLATE.format(
         company_name=lead.get("company_name") or lead.get("Company Name") or "the business",
@@ -115,13 +144,15 @@ def _validate_result(result: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def generate_outreach(lead: dict[str, Any], audit: dict[str, Any]) -> dict[str, Any]:
+def generate_outreach(lead: dict[str, Any], audit: dict[str, Any], follow_up: bool = False) -> dict[str, Any]:
     """
-    Generates a personalized cold outreach email for a lead using LLM.
+    Generates a personalized cold outreach (or follow-up) email for a lead using LLM.
 
     Args:
         lead: A lead row dict (from Lead Database sheet or normalized engine output).
         audit: An audit result dict (from Strategic Angle sheet or audit_website()).
+        follow_up: If True, generates a short 3-sentence follow-up email instead of a
+                   fresh cold email.
 
     Returns:
         Dict with 'subject_line' and 'email_body'.
@@ -129,7 +160,7 @@ def generate_outreach(lead: dict[str, Any], audit: dict[str, Any]) -> dict[str, 
     Raises:
         ValueError: If the LLM returns invalid output after two attempts.
     """
-    prompt = _build_prompt(lead, audit)
+    prompt = _build_prompt(lead, audit, follow_up=follow_up)
 
     raw = call_llm(prompt)
     try:

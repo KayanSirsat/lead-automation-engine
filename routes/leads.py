@@ -23,7 +23,8 @@ from workflows.lead_workflow import (
     run_outreach_workflow,
     run_enrichment_workflow,
     run_lead_audit_workflow,
-    run_outreach_delivery_workflow
+    run_outreach_delivery_workflow,
+    run_followup_workflow,
 )
 
 
@@ -48,6 +49,7 @@ def get_stats():
     """
     try:
         leads = get_sheet_data(_LEAD_SHEET)
+        logger.info(f"get_stats: Fetched {len(leads)} rows from '{_LEAD_SHEET}'")
         audits = get_sheet_data(_AUDIT_SHEET)
 
         audited_ids = {
@@ -96,6 +98,7 @@ def get_leads(
     """
     try:
         rows = get_sheet_data(_LEAD_SHEET)
+        logger.info(f"get_leads: Fetched {len(rows)} rows from '{_LEAD_SHEET}'")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -439,6 +442,16 @@ def sync_delivery():
     """
     count = run_outreach_delivery_workflow()
     return {"sent": count}
+
+
+@router.post("/sync/followup", status_code=200)
+def sync_followup(days: int = 3):
+    """
+    Sends follow-up emails for leads that were 'Contacted' and whose outreach
+    was sent at least `days` days ago with no reply.
+    """
+    count = run_followup_workflow(days_since_contact=days)
+    return {"followups_sent": count}
 
 
 @router.patch("/{lead_id}/status", status_code=200)

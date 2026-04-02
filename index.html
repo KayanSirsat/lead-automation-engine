@@ -1220,16 +1220,45 @@
         function Dashboard({ onNav }) {
             const [stats, setStats] = useState(null);
             const [jobs, setJobs] = useState([]);
+            const [leads, setLeads] = useState([]);
             const [loading, setLoading] = useState(true);
 
             useEffect(() => {
-                Promise.all([apiFetch('/leads/stats'), apiFetch('/jobs')])
-                    .then(([s, j]) => { setStats(s); setJobs(j); })
+                Promise.all([apiFetch('/leads/stats'), apiFetch('/jobs'), apiFetch('/leads')])
+                    .then(([s, j, l]) => { setStats(s); setJobs(j); setLeads(l || []); })
                     .catch(() => { })
                     .finally(() => setLoading(false));
             }, []);
 
             const recentJobs = jobs.slice(0, 5);
+
+            const funnelStages = [
+                { label: 'Scraped', value: stats?.total_leads ?? 0 },
+                { label: 'Audited', value: stats?.audited ?? 0 },
+                { label: 'Outreach Sent', value: stats?.outreach_sent ?? 0 },
+                { label: 'Contacted', value: stats?.contacted ?? 0 },
+                { label: 'Replied', value: stats?.replied ?? 0 },
+                { label: 'Closed', value: stats?.closed ?? 0 },
+            ];
+            const maxFunnel = Math.max(funnelStages[0].value, 1);
+            let lastV = Infinity;
+            const funnelWithHeights = funnelStages.map((s, i) => {
+                const funnelVal = Math.min(s.value, lastV);
+                lastV = funnelVal;
+                const h = (funnelVal / maxFunnel) * 100;
+                return { ...s, cappedHeight: h };
+            });
+
+            const nicheCounts = {};
+            leads.forEach(ld => {
+                let n = ld['Niche'];
+                if (n) {
+                    n = n.toLowerCase();
+                    nicheCounts[n] = (nicheCounts[n] || 0) + 1;
+                }
+            });
+            const sortedNiches = Object.entries(nicheCounts).sort((a, b) => b[1] - a[1]);
+            const maxNicheCount = sortedNiches.length > 0 ? sortedNiches[0][1] : 1;
 
             return (
                 <div>
@@ -1280,6 +1309,100 @@
                             </div>
                         </div>
                     )}
+
+                    <div className="card" style={{ marginBottom: 24 }}>
+                        <div className="section-header" style={{ marginBottom: 16 }}>
+                            <div>
+                                <div className="section-title">Pipeline Funnel</div>
+                                <div className="section-sub">conversion across pipeline stages</div>
+                            </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 10 }}>
+                            {funnelWithHeights.map((stage, i) => {
+                                const prev = i === 0 ? null : funnelWithHeights[i - 1].value;
+                                const conv = prev ? ((stage.value / prev) * 100).toFixed(1) : null;
+                                const pctOfMax = loading ? 0 : stage.cappedHeight;
+                                const hue = 210 - (i * 14); 
+                                return (
+                                    <div key={stage.label} style={{ flex: 1, minWidth: 100, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                                        <div style={{ height: 160, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', width: '100%', padding: '0 4px' }}>
+                                            <div style={{ fontSize: 11, color: 'var(--text3)', textAlign: 'center', marginBottom: 6 }}>
+                                                {i > 0 && !loading ? (prev > 0 ? `${conv}%` : '—') : '\u00A0'}
+                                            </div>
+                                            <div style={{ 
+                                                width: '100%', 
+                                                height: `${Math.max(pctOfMax, 2)}%`, 
+                                                background: `linear-gradient(to bottom, hsl(${hue}, 80%, 55%), hsl(${hue - 15}, 80%, 45%))`,
+                                                borderRadius: '6px 6px 0 0',
+                                                transition: 'height 0.6s cubic-bezier(0.4, 0, 0.2, 1)',
+                                                display: 'flex',
+                                                justifyContent: 'center',
+                                                alignItems: 'flex-start',
+                                                paddingTop: pctOfMax >= 15 ? 8 : 0,
+                                            }}>
+                                                {pctOfMax >= 15 && !loading && (
+                                                    <span style={{ fontSize: 15, fontWeight: 700, fontFamily: 'var(--mono)', color: '#fff', opacity: 0.95 }}>
+                                                        {stage.value}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                        {(pctOfMax < 15 || loading) && (
+                                            <div style={{ fontSize: 15, fontWeight: 700, fontFamily: 'var(--mono)', color: 'var(--text)', marginTop: 6 }}>
+                                                {loading ? '—' : stage.value}
+                                            </div>
+                                        )}
+                                        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text2)', marginTop: pctOfMax < 15 ? 2 : 8, textAlign: 'center' }}>
+                                            {stage.label}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+
+                    <div className="card" style={{ marginBottom: 24 }}>
+                        <div className="section-header" style={{ marginBottom: 16 }}>
+                            <div>
+                                <div className="section-title">Performance by Niche</div>
+                                <div className="section-sub">lead distribution across industries</div>
+                            </div>
+                        </div>
+                        {loading ? (
+                            <div style={{ color: 'var(--text3)' }}>Loading...</div>
+                        ) : sortedNiches.length === 0 ? (
+                            <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text3)' }}>No niche data yet</div>
+                        ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                                {sortedNiches.map(([niche, count]) => {
+                                    const pct = (count / maxNicheCount) * 100;
+                                    let hue = 210; // low: blue
+                                    if (pct > 66) hue = 140; // high: green
+                                    else if (pct > 33) hue = 175; // mid: teal
+
+                                    return (
+                                        <div key={niche} style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                                            <div style={{ width: 140, fontSize: 13, fontWeight: 500, color: 'var(--text2)', textTransform: 'capitalize', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flexShrink: 0 }}>
+                                                {niche}
+                                            </div>
+                                            <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                <div style={{ 
+                                                    height: 24, 
+                                                    width: `${Math.max(pct, 2)}%`, 
+                                                    background: `linear-gradient(90deg, hsl(${hue}, 80%, 40%), hsl(${hue}, 80%, 55%))`,
+                                                    borderRadius: 4,
+                                                    transition: 'width 0.6s ease'
+                                                }} />
+                                                <div style={{ fontSize: 13, fontWeight: 700, fontFamily: 'var(--mono)', color: 'var(--text)' }}>
+                                                    {count}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
 
                     <div className="section-header">
                         <div>
@@ -2032,6 +2155,7 @@
                                         <th>Score</th>
                                         <th>Website</th>
                                         <th>Instagram</th>
+                                        <th>Status</th>
                                     </tr>
                                 </thead>
                                 <tbody>

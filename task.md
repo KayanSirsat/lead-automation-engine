@@ -45,11 +45,20 @@
 - [x] `POST /leads/sync/delivery` API route — bulk send all pending drafts
 - [x] Mark draft status as "Sent" in Outreach Drafts sheet after send
 - [x] Update `.env.example` with email configuration variables
-- [ ] Follow-up sequence logic (trigger after N days if no reply)
+- [x] Follow-up sequence logic (trigger after N days if no reply) — run_followup_workflow() in lead_workflow.py + POST /leads/sync/followup route
 - [ ] Reply tracking integration
 
 ## Phase 5 — Dashboard Polish
-- [ ] Pipeline funnel visualization (scrape → audit → outreach)
-- [ ] Per-niche and per-city stats charts
+- [x] Pipeline funnel visualization (scrape → audit → outreach → contacted → replied → closed) with conversion % and proportional bar heights
+- [x] Per-niche stats chart (horizontal bar chart, client-side grouping, sorted by count)
+- [ ] Per-city stats chart
 - [ ] Lead filter UI (tier, city, niche, audit confidence score)
 - [ ] Live job log display improvements
+
+## Phase 6 — Infrastructure & Scale (Planned)
+- [ ] Migrate from Google Sheets to Supabase (PostgreSQL)
+- [ ] Follow-up reply tracking via Gmail API or SendGrid webhooks
+- [ ] A/B testing for subject lines
+- [ ] Bounce rate tracking
+- [ ] Sending rate limits and daily cap controls
+- [ ] Multi-user support (per-user sheet / DB isolation)
