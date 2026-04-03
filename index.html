@@ -1260,6 +1260,21 @@
             const sortedNiches = Object.entries(nicheCounts).sort((a, b) => b[1] - a[1]);
             const maxNicheCount = sortedNiches.length > 0 ? sortedNiches[0][1] : 1;
 
+            const cityCounts = {};
+            leads.forEach(ld => {
+                let c = ld['Location'];
+                if (c) {
+                    c = c.trim();
+                    const key = c.toLowerCase();
+                    if (!cityCounts[key]) cityCounts[key] = { label: c, count: 0 };
+                    cityCounts[key].count += 1;
+                }
+            });
+            const sortedCities = Object.values(cityCounts)
+                .sort((a, b) => b.count - a.count)
+                .map(c => [c.label, c.count]);
+            const maxCityCount = sortedCities.length > 0 ? sortedCities[0][1] : 1;
+
             return (
                 <div>
                     <div className="stats-grid">
@@ -1384,6 +1399,49 @@
                                         <div key={niche} style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
                                             <div style={{ width: 140, fontSize: 13, fontWeight: 500, color: 'var(--text2)', textTransform: 'capitalize', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flexShrink: 0 }}>
                                                 {niche}
+                                            </div>
+                                            <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                <div style={{ 
+                                                    height: 24, 
+                                                    width: `${Math.max(pct, 2)}%`, 
+                                                    background: `linear-gradient(90deg, hsl(${hue}, 80%, 40%), hsl(${hue}, 80%, 55%))`,
+                                                    borderRadius: 4,
+                                                    transition: 'width 0.6s ease'
+                                                }} />
+                                                <div style={{ fontSize: 13, fontWeight: 700, fontFamily: 'var(--mono)', color: 'var(--text)' }}>
+                                                    {count}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="card" style={{ marginBottom: 24 }}>
+                        <div className="section-header" style={{ marginBottom: 16 }}>
+                            <div>
+                                <div className="section-title">Performance by City</div>
+                                <div className="section-sub">lead distribution across locations</div>
+                            </div>
+                        </div>
+                        {loading ? (
+                            <div style={{ color: 'var(--text3)' }}>Loading...</div>
+                        ) : sortedCities.length === 0 ? (
+                            <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text3)' }}>No city data yet</div>
+                        ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                                {sortedCities.map(([city, count]) => {
+                                    const pct = (count / maxCityCount) * 100;
+                                    let hue = 210; // low: blue
+                                    if (pct > 66) hue = 140; // high: green
+                                    else if (pct > 33) hue = 175; // mid: teal
+
+                                    return (
+                                        <div key={city} style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                                            <div style={{ width: 140, fontSize: 13, fontWeight: 500, color: 'var(--text2)', textTransform: 'capitalize', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flexShrink: 0 }} title={city}>
+                                                {city}
                                             </div>
                                             <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
                                                 <div style={{ 
@@ -2083,23 +2141,26 @@
             const [search, setSearch] = useState('');
             const [filterNiche, setFilterNiche] = useState('');
             const [filterCity, setFilterCity] = useState('');
-            const [filterStatus, setFilterStatus] = useState('');
+            const [filterTier, setFilterTier] = useState('');
             const [selected, setSelected] = useState(null);
 
+            const NICHES = ['cafe', 'restaurant', 'gym', 'salon', 'immigration consultant', 'architect', 'interior designer', 'ca firm', 'law firm', 'dentist', 'real estate', 'wedding photographer'];
+            const TIERS = ['Executive', 'Premium', 'Mid', 'Low'];
+
             useEffect(() => {
-                apiFetch('/leads')
+                setLoading(true);
+                const query = filterNiche ? `?niche=${encodeURIComponent(filterNiche)}` : '';
+                apiFetch(`/leads${query}`)
                     .then(setLeads)
                     .catch(() => { })
                     .finally(() => setLoading(false));
-            }, []);
+            }, [filterNiche]);
 
-            const niches = [...new Set(leads.map(l => l['Niche']).filter(Boolean))];
-            const cities = [...new Set(leads.map(l => l['Location']).filter(Boolean))];
+            const cities = [...new Set(leads.map(l => l['Location']).filter(Boolean))].sort();
 
             const filtered = leads.filter(l => {
-                if (filterStatus && (l['Status'] || 'New') !== filterStatus) return false;
-                if (filterNiche && l['Niche']?.toLowerCase() !== filterNiche.toLowerCase()) return false;
-                if (filterCity && l['Location']?.toLowerCase() !== filterCity.toLowerCase()) return false;
+                if (filterCity && (l['Location'] || '').toLowerCase() !== filterCity.toLowerCase()) return false;
+                if (filterTier && (l['Tier'] || '') !== filterTier) return false;
                 if (search) {
                     const q = search.toLowerCase();
                     return (l['Company Name'] || '').toLowerCase().includes(q) ||
@@ -2112,25 +2173,22 @@
             return (
                 <div>
                     <div className="filter-bar">
-                        <input placeholder="🔍  Search name, city, phone…" value={search} onChange={e => setSearch(e.target.value)} style={{ minWidth: 220 }} />
+                        <input placeholder="🔍 Search name, city, phone…" value={search} onChange={e => setSearch(e.target.value)} style={{ minWidth: 220 }} />
                         <select value={filterNiche} onChange={e => setFilterNiche(e.target.value)}>
                             <option value="">All niches</option>
-                            {niches.map(n => <option key={n} value={n}>{n}</option>)}
+                            {NICHES.map(n => <option key={n} value={n}>{n.charAt(0).toUpperCase() + n.slice(1)}</option>)}
                         </select>
                         <select value={filterCity} onChange={e => setFilterCity(e.target.value)}>
                             <option value="">All cities</option>
                             {cities.map(c => <option key={c} value={c}>{c}</option>)}
                         </select>
-                        <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-                            <option value="">All statuses</option>
-                            <option value="New">New</option>
-                            <option value="Contacted">Contacted</option>
-                            <option value="Replied">Replied</option>
-                            <option value="Meeting Booked">Meeting Booked</option>
-                            <option value="Closed">Closed</option>
-                            <option value="Dead">Dead</option>
+                        <select value={filterTier} onChange={e => setFilterTier(e.target.value)}>
+                            <option value="">All tiers</option>
+                            {TIERS.map(t => <option key={t} value={t}>{t}</option>)}
                         </select>
-                        <span className="filter-count">{filtered.length} of {leads.length} leads</span>
+                        <span className="filter-count">
+                            {loading ? '...' : `${filtered.length} of ${leads.length} leads`}
+                        </span>
                     </div>
 
                     {loading ? (

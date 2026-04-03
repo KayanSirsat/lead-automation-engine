@@ -52,7 +52,7 @@
 - [x] Pipeline funnel visualization (scrape → audit → outreach → contacted → replied → closed) with conversion % and proportional bar heights
 - [x] Per-niche stats chart (horizontal bar chart, client-side grouping, sorted by count)
 - [ ] Per-city stats chart
-- [ ] Lead filter UI (tier, city, niche, audit confidence score)
+- [x] Lead filter UI (tier, city, niche, audit confidence score)
 - [ ] Live job log display improvements
 
 ## Phase 6 — Infrastructure & Scale (Planned)

@@ -171,3 +171,14 @@ Maintained by AI. Updated at end of each working session.
 #### Added (Phase 5 — Dashboard Polish)
 - `index.html` — Added Pipeline Funnel visualization section below stat cards: 6 stages (Scraped, Audited, Outreach Sent, Contacted, Replied, Closed) with proportional bar heights, conversion % labels, blue-to-green gradient colors; bars strictly shrink left to right; shows "–" when previous stage is 0
 - `index.html` — Added Performance by Niche section below funnel: horizontal bar chart grouped client-side from existing leads fetch, sorted by count descending, color-coded by volume
+---
+
+## [2026-04-03]
+
+### Added
+- `index.html` --- Implemented advanced filtering system on the "All Leads" page:
+  - **Niche Filter**: Server-side re-fetching from `/leads?niche=...` with 12 industry options.
+  - **City Filter**: Dynamic client-side filtering populated from the current leads list.
+  - **Tier Filter**: Client-side filtering (Executive, Premium, Mid, Low).
+  - **Logic**: Integrated Search bar and all three dropdowns using AND logic.
+  - **Counter**: Real-time "X of Y leads" status tracking.
